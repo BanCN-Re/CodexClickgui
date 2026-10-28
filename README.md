@@ -28,6 +28,7 @@ Codex 桌面端风格的 Minecraft ClickGUI（Carnation 客户端模块面），
   - [进阶：直接调 Java](#进阶直接调-java)
 - [样式说明](#样式说明)
 - [仓库里有什么 / 不会推什么](#仓库里有什么--不会推什么)
+- [免责声明](#免责声明)
 - [许可证](#许可证)
 
 ## 快速运行
@@ -342,6 +343,26 @@ local pos = BlockPos:containing(api:player():getX(), api:player():getY(), api:pl
 **包含**：`src/`、Gradle 包装器与构建脚本。
 
 **不包含**（已用 `.gitignore` 挡掉）：`.gradle/`、`build/`、`run/`（游戏运行目录，含 `logs/`、崩溃转储、配置、本地脚本目录 `run/Carnation/scripts/`）、内置示例 Lua 脚本资源（本地自留；jar 里没有它时 `installExample` 静默跳过，不影响任何功能）。
+
+## 免责声明
+
+**本仓库内源码与所有内容均为 Vibecoding 产出**——不是逐行手写，而是人与 AI 结对迭代出来的。参与模型（排名不分先后）：
+
+| 模型 |
+|------|
+| Claude Opus 5.5 |
+| Kimi K3.1 Pro |
+| GLM 5.3 |
+| GLM 5.3 FlashX |
+| DeepSeek V4.1 Flash |
+| GPT 6.1 SOL |
+
+在此声明：
+
+1. **仅供学习与技术交流**。本项目用于研究 Minecraft 26.3 客户端 UI、Lua 集成与 Fabric 模组开发，不得用于商业用途，也不建议在多人服务器上使用可能影响游戏公平的功能。
+2. **按“原样”提供**。不对代码的可用性、正确性、安全性作任何明示或暗示的担保；因使用或滥用本仓库内容产生的任何直接或间接后果，由使用者自行承担。
+3. **与上述模型厂商无关**。各模型的输出由仓库作者驱动并采纳，与 Anthropic、Moonshot、智谱、DeepSeek、OpenAI 等公司无任何隶属、背书关系。
+4. **不喜勿喷**。Vibecoding 的产物难免有覆疵，欢迎提 Issue 指正，但请保持基本礼貌；看不惯 AI 写代码的话，右上角关了就是。
 
 ## 许可证
 
