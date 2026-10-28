@@ -1,0 +1,20 @@
+# Gradle 构建产物
+.gradle/
+build/
+
+# IDE
+.vscode/
+.idea/
+*.iml
+
+# Minecraft 客户端运行时目录：
+# 账号 token（Carnation/codex-account.json）、对话记录（Carnation/Work/sessions/）、
+# lua 脚本（Carnation/scripts/）、日志、崩溃报告、存档、截图、选项全部在这里，一律不上传
+run/
+
+# 内置示例 lua 脚本：本地保留（首次运行解包用，缺失时 installExample 静默跳过），但不上仓库
+src/main/resources/assets/carnation/scripts/
+
+# 系统杂物
+Thumbs.db
+.DS_Store

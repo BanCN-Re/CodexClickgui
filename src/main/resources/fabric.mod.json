@@ -1,0 +1,23 @@
+{
+	"schemaVersion": 1,
+	"id": "carnation",
+	"version": "${version}",
+	"name": "Carnation 26.3",
+	"description": "Carnation client for Minecraft 26.3.",
+	"environment": "client",
+	"accessWidener": "carnation.accesswidener",
+	"entrypoints": {
+		"client": [
+			"zzz.loader.CarnationClient"
+		]
+	},
+	"mixins": [
+		"carnation.mixins.json"
+	],
+	"depends": {
+		"fabricloader": ">=0.19.5",
+		"minecraft": "~26.3",
+		"java": ">=25",
+		"fabric-api": "*"
+	}
+}

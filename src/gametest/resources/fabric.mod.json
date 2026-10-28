@@ -1,0 +1,18 @@
+{
+	"schemaVersion": 1,
+	"id": "carnation-gametest",
+	"version": "1.0.0",
+	"name": "Carnation Game Tests",
+	"environment": "client",
+	"entrypoints": {
+		"fabric-client-gametest": [
+			"wtf.carnation.gametest.CodexScreenshotTest",
+			"wtf.carnation.codex.CodexAgentGameTest",
+			"wtf.carnation.script.LuaScriptGameTest",
+			"wtf.carnation.codex.CodexLifecycleGameTest"
+		]
+	},
+	"depends": {
+		"carnation": "*"
+	}
+}
