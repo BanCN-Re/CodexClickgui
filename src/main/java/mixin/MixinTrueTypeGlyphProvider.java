@@ -1,4 +1,4 @@
-package lol.mixin;
+package mixin;
 
 import com.mojang.blaze3d.font.TrueTypeGlyphProvider;
 import org.spongepowered.asm.mixin.Mixin;

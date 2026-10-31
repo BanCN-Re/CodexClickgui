@@ -53,68 +53,73 @@ import static wtf.carnation.ui.codex.CodexTheme.*;
  * Everything is drawn immediate-mode; clickable areas are collected while drawing.
  */
 public class CodexScreen extends Screen {
-    private static final float W = 1551, H = 1115;
     private static final float RAIL_W = 64, SIDEBAR_W = 303, PANEL_TOP = 54, PANEL_BOTTOM = 1110, PANEL_RIGHT = 1547;
     private static final float PANE_W = 404;
     private static final float CARDS_TOP = 640, CARDS_BOTTOM = 900, CARD_H = 104, CARD_GAP = 12;
     private static final float[] MENU_X = {153, 218, 283, 347};
     private static final String[] MENUS = {"文件", "编辑", "视图", "帮助"};
     private static final float POPUP_X = 84, POPUP_Y = 828, POPUP_W = 384, POPUP_H = 244;
-    private static final float ACCOUNT_PANEL_X = 435, ACCOUNT_PANEL_Y = 300, ACCOUNT_PANEL_W = 680, ACCOUNT_PANEL_H = 515;
-    private static final float MODEL_POPUP_X = 557, MODEL_POPUP_Y = 476, MODEL_POPUP_W = 400, MODEL_POPUP_H = 436;
-    private static final float USAGE_POPUP_X = 388, USAGE_POPUP_Y = 128, USAGE_POPUP_W = 380, USAGE_POPUP_H = 252;
+    private static final float ACCOUNT_PANEL_W = 680, ACCOUNT_PANEL_H = 515;
+    private static final float USAGE_POPUP_W = 380, USAGE_POPUP_H = 252;
     private static final int PINK = 0xFFEC4899;
+
+    /** The design size this window is laid out in; subclasses draw other apps at their own size. */
+    protected final float W, H;
+    /** The account panel sits in the middle of the window. */
+    protected final float accountPanelX, accountPanelY;
+    /** Top-left of the quota card; each layout puts it next to the control that opens it. */
+    protected float usagePopupX = 388, usagePopupY = 128;
 
     /** Modules toggled from this GUI, newest first; kept across openings. */
     private static final Deque<Module> RECENT = new ArrayDeque<>();
-    private static boolean sidebarOpen = true, categoriesOpen = true, recentOpen = false, archivedOpen = false;
+    protected static boolean sidebarOpen = true, categoriesOpen = true, recentOpen = false, archivedOpen = false;
 
-    private enum View { ALL, CATEGORY, RECENT }
+    protected enum View { ALL, CATEGORY, RECENT }
 
     /** Whether the main area shows the module grid or the conversation stream. */
-    private enum MainView {MODULES, CHAT}
+    protected enum MainView {MODULES, CHAT}
 
-    private record Place(View view, Category category) {
+    protected record Place(View view, Category category) {
     }
 
-    private Place place = new Place(View.ALL, null);
-    private final Deque<Place> back = new ArrayDeque<>(), forward = new ArrayDeque<>();
+    protected Place place = new Place(View.ALL, null);
+    protected final Deque<Place> back = new ArrayDeque<>(), forward = new ArrayDeque<>();
 
-    private String input = "";
-    private List<String> completions = List.of();
-    private int completionIndex;
+    protected String input = "";
+    protected List<String> completions = List.of();
+    protected int completionIndex;
     /** Dedicated account-login field inside the account popup; never mixes with the composer. */
-    private String accountInput = "";
-    private boolean accountFieldFocused;
+    protected String accountInput = "";
+    protected boolean accountFieldFocused;
     /** Wrapped preview of the account field; recomputed only when the text changes. */
-    private String accountFieldCache = null;
-    private List<String> accountFieldLines = List.of();
+    protected String accountFieldCache = null;
+    protected List<String> accountFieldLines = List.of();
     /** Hard cap for the composer: pasted JSON belongs in the account popup, not here. */
     private static final int MAX_INPUT = 2000;
 
-    private Module selected;
-    private Module binding;
-    private NumberValue dragging;
-    private float dragX, dragW;
-    private int openMenu = -1;
-    private boolean accountOpen;
-    private boolean modelOpen;
-    private boolean usageOpen;
-    private boolean chatFollow = true;
-    private MainView mainView = MainView.MODULES;
+    protected Module selected;
+    protected Module binding;
+    protected NumberValue dragging;
+    protected float dragX, dragW;
+    protected int openMenu = -1;
+    protected boolean accountOpen;
+    protected boolean modelOpen;
+    protected boolean usageOpen;
+    protected boolean chatFollow = true;
+    protected MainView mainView = MainView.MODULES;
     /** Conversation indices whose thinking block the user expanded. */
-    private final Set<Integer> expandedThinking = new HashSet<>();
+    protected final Set<Integer> expandedThinking = new HashSet<>();
     /** Set while a conversation rename is pending; the composer text becomes the new title. */
-    private Path renamePending;
+    protected Path renamePending;
     /** The composing IME string, shown inline until the commit lands in charTyped. */
-    private String preedit = "";
+    protected String preedit = "";
     /**
      * A no-op focused target that keeps SDL text input on. 26.x only feeds typed characters and
      * IME events to a screen while a capturesInput() listener holds focus (EditBox.setFocused is
      * what normally flips the switch), and every control here is drawn by hand — without the
      * anchor the composer never receives a single typed character, English included.
      */
-    private final GuiEventListener textAnchor = new GuiEventListener() {
+    protected final GuiEventListener textAnchor = new GuiEventListener() {
         @Override
         public void setFocused(boolean focused) {
         }
@@ -130,35 +135,43 @@ public class CodexScreen extends Screen {
         }
     };
 
-    private String toast = "";
-    private long toastAt;
-    private boolean toastError;
-    private long placeChangedAt = System.currentTimeMillis();
-    private String heroText = "", heroPrevious = "";
-    private long heroChangedAt;
+    protected String toast = "";
+    protected long toastAt;
+    protected boolean toastError;
+    protected long placeChangedAt = System.currentTimeMillis();
+    protected String heroText = "", heroPrevious = "";
+    protected long heroChangedAt;
 
-    private float scroll, targetScroll, maxScroll;
-    private float open;
-    private boolean closing;
-    private long lastFrame, typedAt;
-    private final long openedAt = System.currentTimeMillis();
+    protected float scroll, targetScroll, maxScroll;
+    protected float open;
+    protected boolean closing;
+    protected long lastFrame, typedAt;
+    protected final long openedAt = System.currentTimeMillis();
 
     // Frame state.
-    private float s, alpha, mouseX = -1, mouseY = -1, dt;
-    private int originX, originY, frame;
-    private final Map<Object, float[]> animations = new HashMap<>();
-    private final List<Hit> hits = new ArrayList<>();
-    private final Deque<float[]> clips = new ArrayDeque<>();
-    private float clipX0 = -1e9f, clipY0 = -1e9f, clipX1 = 1e9f, clipY1 = 1e9f;
+    protected float s, alpha, mouseX = -1, mouseY = -1, dt;
+    protected int originX, originY, frame;
+    protected final Map<Object, float[]> animations = new HashMap<>();
+    protected final List<Hit> hits = new ArrayList<>();
+    protected final Deque<float[]> clips = new ArrayDeque<>();
+    protected float clipX0 = -1e9f, clipY0 = -1e9f, clipX1 = 1e9f, clipY1 = 1e9f;
 
-    private record Hit(float x, float y, float w, float h, Runnable left, Runnable right) {
+    protected record Hit(float x, float y, float w, float h, Runnable left, Runnable right) {
         boolean contains(float px, float py) {
             return px >= x && py >= y && px < x + w && py < y + h;
         }
     }
 
     public CodexScreen() {
+        this(1551, 1115);
+    }
+
+    protected CodexScreen(float designWidth, float designHeight) {
         super(Component.literal("Carnation"));
+        W = designWidth;
+        H = designHeight;
+        accountPanelX = Math.round((W - ACCOUNT_PANEL_W) / 2);
+        accountPanelY = Math.round((H - ACCOUNT_PANEL_H) / 2);
         CodexChat.ensureLoaded();
     }
 
@@ -207,10 +220,10 @@ public class CodexScreen extends Screen {
         // A baked scale keeps text sharp, but the whole window must always fit, so never
         // draw larger than the game window — on small windows everything shrinks instead.
         s = Math.min(UiFont.useScale(fit), fit);
-        originX = Math.round((window.getWidth() - W * s) / 2);
-        originY = Math.round((window.getHeight() - H * s) / 2);
-        mouseX = (guiMouseX * guiScale + guiScale / 2f - originX) / s;
-        mouseY = (guiMouseY * guiScale + guiScale / 2f - originY) / s;
+        originX = snap(Math.round((window.getWidth() - W * s) / 2), guiScale);
+        originY = snap(Math.round((window.getHeight() - H * s) / 2), guiScale);
+        mouseX = toDesignX(guiMouseX);
+        mouseY = toDesignY(guiMouseY);
         hits.clear();
 
         if (dragging != null) dragValue(dragging);
@@ -229,7 +242,7 @@ public class CodexScreen extends Screen {
         g.pose().popMatrix();
     }
 
-    private void drawWindow(GuiGraphicsExtractor g) {
+    protected void drawWindow(GuiGraphicsExtractor g) {
         Render2D.shadow(g, 0, 0, W, H, 10, 56, 18, c(0x90000000));
         Render2D.shadow(g, 0, 0, W, H, 10, 8, 2, c(0x60000000));
         Render2D.roundedRect(g, 0, 0, W, H, 10, c(CHROME));
@@ -256,13 +269,13 @@ public class CodexScreen extends Screen {
         Render2D.roundedOutline(g, 0, 0, W, H, 10, 1, c(WINDOW_BORDER));
         drawMenuDropdown(g);
         drawAccountPopup(g);
-        drawModelPopup(g);
+        drawEffortPopup(g, effortStyle());
         drawUsagePopup(g);
     }
 
     // ---- title bar ----------------------------------------------------------------------------
 
-    private void drawTitleBar(GuiGraphicsExtractor g) {
+    protected void drawTitleBar(GuiGraphicsExtractor g) {
         iconButton(g, Icons.ARROW_LEFT, 25, 23, 34, back.isEmpty() ? 0xFF4C4D54 : ICON, this::goBack);
         iconButton(g, Icons.ARROW_RIGHT, 68, 23, 34, forward.isEmpty() ? 0xFF4C4D54 : ICON, this::goForward);
         iconButton(g, Icons.PANEL_LEFT, 110, 23, 34, ICON, () -> sidebarOpen = !sidebarOpen);
@@ -283,7 +296,7 @@ public class CodexScreen extends Screen {
         windowButton(g, Icons.X, 1522, 0xFFFFFFFF, true, this::onClose);
     }
 
-    private void windowButton(GuiGraphicsExtractor g, char icon, float cx, int color, boolean close, Runnable action) {
+    protected void windowButton(GuiGraphicsExtractor g, char icon, float cx, int color, boolean close, Runnable action) {
         float x = cx - 28, w = 57;
         float t = anim("win" + icon, hover(x, 0, w, 46) ? 1 : 0, 20);
         int bg = close ? CLOSE_HOVER : 0xFF30313B;
@@ -299,7 +312,7 @@ public class CodexScreen extends Screen {
         hit(x, 0, w, 46, action, null);
     }
 
-    private void iconButton(GuiGraphicsExtractor g, char icon, float cx, float cy, float size, int color, Runnable action) {
+    protected void iconButton(GuiGraphicsExtractor g, char icon, float cx, float cy, float size, int color, Runnable action) {
         float t = anim("icon" + icon + cx + cy, hover(cx - size / 2, cy - size / 2, size, size) ? 1 : 0, 18);
         Render2D.roundedRect(g, cx - size / 2, cy - size / 2, size, size, 8, c(Render2D.fade(0xFF30313B, t)));
         UiFont.ICON_M.icon(g, icon, cx, cy, c(Render2D.mix(color, TEXT_SIDEBAR, t * 0.6f)));
@@ -308,7 +321,7 @@ public class CodexScreen extends Screen {
 
     // ---- rail ---------------------------------------------------------------------------------
 
-    private void drawRail(GuiGraphicsExtractor g) {
+    protected void drawRail(GuiGraphicsExtractor g) {
         List<Place> places = new ArrayList<>();
         places.add(new Place(View.ALL, null));
         for (Category category : Category.values()) places.add(new Place(View.CATEGORY, category));
@@ -347,7 +360,7 @@ public class CodexScreen extends Screen {
         hit(16, 1066, 33, 33, () -> accountOpen = !accountOpen, null);
     }
 
-    private void railIcon(GuiGraphicsExtractor g, char icon, float cy, boolean active, Runnable action) {
+    protected void railIcon(GuiGraphicsExtractor g, char icon, float cy, boolean active, Runnable action) {
         boolean hovered = hover(11, cy - 22, 42, 44);
         float t = anim("rail" + icon, active ? 1 : hovered ? 0.55f : 0, 18);
         UiFont.ICON_L.icon(g, icon, 32, cy, c(Render2D.mix(ICON, TEXT, t)));
@@ -356,7 +369,7 @@ public class CodexScreen extends Screen {
 
     // ---- sidebar ------------------------------------------------------------------------------
 
-    private void drawSidebar(GuiGraphicsExtractor g, float x0) {
+    protected void drawSidebar(GuiGraphicsExtractor g, float x0) {
         float dx = x0 - RAIL_W;
         UiFont.TITLE.drawMiddle(g, Client.name, 86 + dx, 87, c(TEXT));
         UiFont.ICON_S.icon(g, Icons.CHEVRON_DOWN, 86 + dx + UiFont.TITLE.width(Client.name) + 14, 88, c(ICON));
@@ -457,7 +470,7 @@ public class CodexScreen extends Screen {
     }
 
     /** Hover-only archive button at a session row's right edge; collected after the row hit. */
-    private void drawArchiveButton(GuiGraphicsExtractor g, float dx, float rowY, Path file) {
+    protected void drawArchiveButton(GuiGraphicsExtractor g, float dx, float rowY, Path file) {
         float bx = 76 + dx + 280 - 34, by = rowY;
         boolean btnHover = hover(bx - 4, by - 11, 26, 22);
         float t = anim("arch" + file, btnHover ? 1 : 0, 14);
@@ -473,7 +486,7 @@ public class CodexScreen extends Screen {
     }
 
     /** A collapsible section title ("项目 >") whose chevron turns as it opens; returns the open amount. */
-    private float sectionHeader(GuiGraphicsExtractor g, float dx, float cy, String label, boolean expanded,
+    protected float sectionHeader(GuiGraphicsExtractor g, float dx, float cy, String label, boolean expanded,
                                 Runnable toggle, String key) {
         float t = anim("section" + key, expanded ? 1 : 0, 14);
         float w = UiFont.SEMIBOLD.width(label);
@@ -491,12 +504,12 @@ public class CodexScreen extends Screen {
         return ease(t);
     }
 
-    private void sidebarRow(GuiGraphicsExtractor g, float dx, float cy, char icon, String label, String trailing,
+    protected void sidebarRow(GuiGraphicsExtractor g, float dx, float cy, char icon, String label, String trailing,
                             boolean active, Runnable action) {
         sidebarRow(g, dx, cy, icon, label, trailing, active, action, null);
     }
 
-    private void sidebarRow(GuiGraphicsExtractor g, float dx, float cy, char icon, String label, String trailing,
+    protected void sidebarRow(GuiGraphicsExtractor g, float dx, float cy, char icon, String label, String trailing,
                             boolean active, Runnable action, Runnable right) {
         float x = 76 + dx, w = 280, h = 36;
         boolean hovered = hover(x, cy - h / 2, w, h);
@@ -511,7 +524,7 @@ public class CodexScreen extends Screen {
 
     // ---- main area ----------------------------------------------------------------------------
 
-    private void drawMain(GuiGraphicsExtractor g, float mainX) {
+    protected void drawMain(GuiGraphicsExtractor g, float mainX) {
         float pane = ease(anim("pane", selected != null ? 1 : 0, 13));
         float paneX = PANEL_RIGHT - PANE_W * pane;
         float contentRight = PANEL_RIGHT - PANE_W * pane;
@@ -521,7 +534,7 @@ public class CodexScreen extends Screen {
 
         drawHeader(g, mainX);
         if (mainView == MainView.CHAT) {
-            drawChat(g, composerX, composerW);
+            drawChat(g, composerX, composerW, 130, 908);
         } else {
             drawHero(g, cx);
             drawCards(g, composerX, composerW);
@@ -531,7 +544,7 @@ public class CodexScreen extends Screen {
         drawToast(g, (mainX + PANEL_RIGHT) / 2);
     }
 
-    private void drawHeader(GuiGraphicsExtractor g, float mainX) {
+    protected void drawHeader(GuiGraphicsExtractor g, float mainX) {
         float tabX = mainX + 17;
         Render2D.roundedRect(g, tabX, 68, 298, 40, 8, c(TAB));
         Render2D.roundedOutline(g, tabX, 68, 298, 40, 8, 1, c(TAB_BORDER));
@@ -562,7 +575,7 @@ public class CodexScreen extends Screen {
         Render2D.rect(g, mainX, 119, PANEL_RIGHT - mainX, 1, c(HEADER_DIVIDER));
     }
 
-    private String placeTitle() {
+    protected String placeTitle() {
         if (mainView == MainView.CHAT) return "对话";
         if (isSearching()) return "搜索 “" + displayClip(input.trim(), 40) + "”";
         return switch (place.view()) {
@@ -572,7 +585,7 @@ public class CodexScreen extends Screen {
         };
     }
 
-    private void drawHero(GuiGraphicsExtractor g, float cx) {
+    protected void drawHero(GuiGraphicsExtractor g, float cx) {
         float breathe = 1 + 0.018f * (float) Math.sin((System.currentTimeMillis() - openedAt) / 700.0);
         g.pose().pushMatrix();
         g.pose().translate(cx, 492);
@@ -591,7 +604,7 @@ public class CodexScreen extends Screen {
         drawHeadline(g, heroText, cx, 579 + 10 * (1 - t), heroPrevious.isEmpty() ? 1 : t);
     }
 
-    private String heroLine() {
+    protected String heroLine() {
         if (isSearching()) return "搜索 \u0001" + displayClip(input.trim(), 48) + "\u0001 的模块";
         return switch (place.view()) {
             case ALL -> "你想让我们在 \u0001" + Client.name + "\u0001 中启用什么?";
@@ -601,7 +614,7 @@ public class CodexScreen extends Screen {
     }
 
     /** A headline whose part between \u0001 marks gets the dotted underline, as Codex does for the project. */
-    private void drawHeadline(GuiGraphicsExtractor g, String line, float cx, float cy, float fade) {
+    protected void drawHeadline(GuiGraphicsExtractor g, String line, float cx, float cy, float fade) {
         String[] parts = line.split("\u0001", -1);
         float total = 0;
         for (String part : parts) total += UiFont.HERO.width(part);
@@ -619,7 +632,7 @@ public class CodexScreen extends Screen {
     }
 
     /** The Codex blossom: the outer contour of a ring of circles, with a prompt inside. */
-    private void drawLogo(GuiGraphicsExtractor g, float scale) {
+    protected void drawLogo(GuiGraphicsExtractor g, float scale) {
         int petals = 8;
         float orbit = 17 * scale, radius = 13 * scale, stroke = 2.4f * scale;
         for (int i = 0; i < petals; i++) {
@@ -638,7 +651,7 @@ public class CodexScreen extends Screen {
 
     // ---- module cards -------------------------------------------------------------------------
 
-    private void drawCards(GuiGraphicsExtractor g, float x, float w) {
+    protected void drawCards(GuiGraphicsExtractor g, float x, float w) {
         List<Module> modules = visibleModules();
         int columns = w >= 780 ? 3 : 2;
         float cardW = (w - CARD_GAP * (columns - 1)) / columns;
@@ -674,7 +687,7 @@ public class CodexScreen extends Screen {
         }
     }
 
-    private void drawCard(GuiGraphicsExtractor g, Module module, float x, float y, float w, float appear) {
+    protected void drawCard(GuiGraphicsExtractor g, Module module, float x, float y, float w, float appear) {
         boolean hovered = hover(x, y, w, CARD_H);
         float t = anim("card", module, hovered || selected == module ? 1 : 0, 16);
         float lift = 2 * t;
@@ -710,7 +723,7 @@ public class CodexScreen extends Screen {
     }
 
     /** A Codex-style switch: white track and dark knob when on, grey when off. */
-    private void drawSwitch(GuiGraphicsExtractor g, float x, float y, boolean on, Object key, float fade, Runnable action) {
+    protected void drawSwitch(GuiGraphicsExtractor g, float x, float y, boolean on, Object key, float fade, Runnable action) {
         float t = ease(anim("switch", key, on ? 1 : 0, 16));
         boolean hovered = hover(x - 2, y - 2, 40, 24);
         Render2D.roundedRect(g, x, y, 36, 20, 10, c(Render2D.fade(Render2D.mix(TRACK, SEND, t), fade)));
@@ -720,7 +733,7 @@ public class CodexScreen extends Screen {
     }
 
     /** Wraps display text: strips control glyphs that render as boxes, keeps source line breaks. */
-    private static List<String> wrapRich(UiFont font, String text, float maxWidth) {
+    protected static List<String> wrapRich(UiFont font, String text, float maxWidth) {
         String clean = text.replaceAll("[\\u0000-\\u0008\\u000B\\u000C\\u000E-\\u001F\\u007F]", "");
         List<String> out = new ArrayList<>();
         for (String raw : clean.split("\n", -1)) {
@@ -736,27 +749,26 @@ public class CodexScreen extends Screen {
     // ---- codex chat ---------------------------------------------------------------------------
 
     /** The conversation stream shown while the chat view is open. */
-    private void drawChat(GuiGraphicsExtractor g, float x, float w) {
-        float top = 130, bottom = 908;
+    protected void drawChat(GuiGraphicsExtractor g, float x, float w, float top, float bottom) {
         List<CodexChat.Msg> chat = CodexChat.messages();
         if (chat.isEmpty()) {
             maxScroll = 0;
             if (CodexChat.state() == CodexChat.State.NO_ACCOUNT) {
                 float cy = (top + bottom) / 2;
-                UiFont.TITLE.drawCentered(g, "开始使用 Codex", x + w / 2, cy - 46, c(TEXT));
-                UiFont.BODY.drawCentered(g, "导入 Codex 账号后即可在游戏内与它对话", x + w / 2, cy - 10,
+                UiFont.TITLE.drawCentered(g, "连接你的 AI", x + w / 2, cy - 46, c(TEXT));
+                UiFont.BODY.drawCentered(g, "登录任意兼容 API，或导入 Codex 账号后开始对话", x + w / 2, cy - 10,
                         c(TEXT_MUTED));
-                UiFont.SMALL.drawCentered(g, "支持官方 auth.json 与 sub2api 导出格式，账号仅保存在本机",
+                UiFont.SMALL.drawCentered(g, "支持 OpenAI Chat / Responses、Anthropic、Gemini 与兼容中转",
                         x + w / 2, cy + 16, c(TEXT_MUTED));
                 drawImportButton(g, x + w / 2, cy + 58);
             } else {
-                UiFont.BODY.drawCentered(g, "在下方输入，开始与 Codex 的对话", x + w / 2, (top + bottom) / 2,
+                UiFont.BODY.drawCentered(g, "在下方输入，开始对话", x + w / 2, (top + bottom) / 2,
                         c(TEXT_MUTED));
             }
             return;
         }
         if (CodexChat.state() == CodexChat.State.NO_ACCOUNT) {
-            drawAccountBanner(g, x, w);
+            drawAccountBanner(g, x, w, top);
             top += 52; // the stream starts below the permanent no-account notice
         }
         float textW = Math.min(620, w - 48);
@@ -820,35 +832,45 @@ public class CodexScreen extends Screen {
         }
     }
 
-    /** Centered "导入账号" call-to-action of the empty chat view while no account is imported. */
-    private void drawImportButton(GuiGraphicsExtractor g, float cx, float cy) {
-        float bw = 176, bh = 44;
-        float bx = cx - bw / 2, by = cy - bh / 2;
-        boolean btnHover = hover(bx, by, bw, bh);
-        float t = anim("emptyImport", btnHover ? 1 : 0, 16);
-        Render2D.roundedRect(g, bx, by, bw, bh, 12, c(Render2D.mix(TAB, ITEM_ACTIVE, t)));
-        Render2D.roundedOutline(g, bx, by, bw, bh, 12, 1, c(Render2D.mix(CARD_BORDER, CARD_BORDER_HOVER, t)));
-        UiFont.SEMIBOLD.drawCentered(g, "导入账号", cx, cy, c(TEXT));
-        hit(bx, by, bw, bh, () -> accountOpen = true, null);
+    /** Centered login actions of the empty chat view while no provider is configured. */
+    protected void drawImportButton(GuiGraphicsExtractor g, float cx, float cy) {
+        float bw = 176, bh = 44, gap = 12;
+        float apiX = cx - bw - gap / 2, codexX = cx + gap / 2;
+        drawLoginButton(g, apiX, cy - bh / 2, bw, bh, "API 登录", this::openApiSettings);
+        drawLoginButton(g, codexX, cy - bh / 2, bw, bh, "导入 Codex", () -> accountOpen = true);
     }
 
-    /** Slim notice above the chat stream while a conversation is open but no account is imported. */
-    private void drawAccountBanner(GuiGraphicsExtractor g, float x, float w) {
-        float bw = Math.min(620, w - 48), bx = x + (w - bw) / 2, by = 130;
+    private void drawLoginButton(GuiGraphicsExtractor g, float bx, float by, float bw, float bh,
+                                 String label, Runnable action) {
+        boolean btnHover = hover(bx, by, bw, bh);
+        float t = anim("emptyLogin" + label, btnHover ? 1 : 0, 16);
+        Render2D.roundedRect(g, bx, by, bw, bh, 12, c(Render2D.mix(TAB, ITEM_ACTIVE, t)));
+        Render2D.roundedOutline(g, bx, by, bw, bh, 12, 1, c(Render2D.mix(CARD_BORDER, CARD_BORDER_HOVER, t)));
+        UiFont.SEMIBOLD.drawCentered(g, label, bx + bw / 2, by + bh / 2, c(TEXT));
+        hit(bx, by, bw, bh, action, null);
+    }
+
+    protected void openApiSettings() {
+        minecraft.gui.setScreen(new ApiSettingsScreen(this));
+    }
+
+    /** Slim notice above the chat stream while a provider is not configured. */
+    protected void drawAccountBanner(GuiGraphicsExtractor g, float x, float w, float by) {
+        float bw = Math.min(620, w - 48), bx = x + (w - bw) / 2;
         Render2D.roundedRect(g, bx, by, bw, 40, 10, c(CARD));
         Render2D.roundedOutline(g, bx, by, bw, 40, 10, 1, c(CARD_BORDER));
         UiFont.ICON_S.icon(g, Icons.CIRCLE_ALERT, bx + 22, by + 20, c(ORANGE));
-        UiFont.SEMIBOLD.drawMiddle(g, "未导入 Codex 账号，回复功能不可用", bx + 40, by + 20, c(TEXT));
+        UiFont.SEMIBOLD.drawMiddle(g, "尚未配置 AI，请登录 API 或导入 Codex 账号", bx + 40, by + 20, c(TEXT));
         float pw = 92, px = bx + bw - pw - 14, py = by + 8;
         boolean btnHover = hover(px, py, pw, 24);
         float t = anim("bannerImport", btnHover ? 1 : 0, 14);
         Render2D.roundedRect(g, px, py, pw, 24, 12, c(Render2D.mix(TAB, ITEM_ACTIVE, t)));
-        UiFont.SMALL.drawCentered(g, "导入账号", px + pw / 2, py + 12, c(TEXT));
-        hit(px, py, pw, 24, () -> accountOpen = true, null);
+        UiFont.SMALL.drawCentered(g, "配置", px + pw / 2, py + 12, c(TEXT));
+        hit(px, py, pw, 24, this::openApiSettings, null);
     }
 
     /** User messages sit in a right-aligned bubble; assistant replies are plain text by the blossom. */
-    private void drawChatMessage(GuiGraphicsExtractor g, CodexChat.Msg message, List<String> lines,
+    protected void drawChatMessage(GuiGraphicsExtractor g, CodexChat.Msg message, List<String> lines,
                                  float x, float w, float y, float textW, int index, boolean last) {
         if (message.role() == CodexChat.Msg.Role.CALL) {
             List<String> plan = planSteps(message);
@@ -916,7 +938,7 @@ public class CodexScreen extends Screen {
     }
 
     /** Step labels of an update_plan call ("status|step" entries), or null for other calls. */
-    private static List<String> planSteps(CodexChat.Msg message) {
+    protected static List<String> planSteps(CodexChat.Msg message) {
         if (message.meta() == null || !message.text().startsWith("update_plan(")) return null;
         try {
             JsonObject args = JsonParser.parseString(message.meta()).getAsJsonObject();
@@ -938,7 +960,7 @@ public class CodexScreen extends Screen {
     }
 
     /** Codex-style plan card: one check/arrow/circle row per step. */
-    private void drawPlanCard(GuiGraphicsExtractor g, List<String> plan, float x, float y) {
+    protected void drawPlanCard(GuiGraphicsExtractor g, List<String> plan, float x, float y) {
         float cardW = Math.min(560, PANEL_RIGHT - x - 24);
         float cardH = 36 + Math.min(plan.size(), 8) * 22 + 10;
         Render2D.roundedRect(g, x, y, cardW, cardH, 12, c(CARD));
@@ -963,9 +985,9 @@ public class CodexScreen extends Screen {
 
     // ---- settings pane ------------------------------------------------------------------------
 
-    private Module paneModule;
+    protected Module paneModule;
 
-    private void drawPane(GuiGraphicsExtractor g, float x, float open) {
+    protected void drawPane(GuiGraphicsExtractor g, float x, float open) {
         if (selected != null) paneModule = selected;
         Module module = paneModule;
         if (module == null) return;
@@ -1029,11 +1051,11 @@ public class CodexScreen extends Screen {
         popClip(g);
     }
 
-    private float rowHeight(Value<?> value) {
+    protected float rowHeight(Value<?> value) {
         return value instanceof NumberValue ? 64 : 48;
     }
 
-    private void drawValueRow(GuiGraphicsExtractor g, Value<?> value, float x, float y, float w, float fade) {
+    protected void drawValueRow(GuiGraphicsExtractor g, Value<?> value, float x, float y, float w, float fade) {
         if (value instanceof BoolValue bool) {
             UiFont.BODY.drawMiddle(g, value.getName(), x, y + 24, c(Render2D.fade(TEXT_SIDEBAR, fade)));
             drawSwitch(g, x + w - 36, y + 14, bool.get(), bool, fade, () -> {
@@ -1096,7 +1118,7 @@ public class CodexScreen extends Screen {
         }
     }
 
-    private void drawBindRow(GuiGraphicsExtractor g, Module module, float x, float y, float w, float fade) {
+    protected void drawBindRow(GuiGraphicsExtractor g, Module module, float x, float y, float w, float fade) {
         UiFont.ICON_S.icon(g, Icons.KEYBOARD, x + 8, y + 24, c(Render2D.fade(ICON, fade)));
         UiFont.BODY.drawMiddle(g, "按键绑定", x + 26, y + 24, c(Render2D.fade(TEXT_SIDEBAR, fade)));
         boolean listening = binding == module;
@@ -1117,7 +1139,7 @@ public class CodexScreen extends Screen {
 
     // ---- composer -----------------------------------------------------------------------------
 
-    private void drawComposer(GuiGraphicsExtractor g, float x, float y, float w, float h) {
+    protected void drawComposer(GuiGraphicsExtractor g, float x, float y, float w, float h) {
         // Context chips on a bar tucked behind the composer's top edge.
         float barX = x + 17, barW = w - 34;
         Render2D.roundedRect(g, barX, 920, barW, 64, 12, c(CHIP_BAR));
@@ -1126,7 +1148,7 @@ public class CodexScreen extends Screen {
         float chip2 = x + 60 + UiFont.BODY.width(Client.name) + 32;
         UiFont.ICON_S.icon(g, Icons.LAPTOP, chip2, 944, c(0xFFE0E0DC));
         UiFont.SEMIBOLD.drawMiddle(g, "Minecraft " + Client.ver, chip2 + 18, 944, c(TEXT));
-        iconButton(g, Icons.SETTINGS, x + w - 39, 944, 26, ICON, () -> navigate(new Place(View.ALL, null)));
+        iconButton(g, Icons.SETTINGS, x + w - 39, 944, 26, ICON, this::openApiSettings);
 
         boolean focused = !input.isEmpty() || binding == null;
         float typing = anim("typing", System.currentTimeMillis() - typedAt < 600 ? 1 : 0, 10);
@@ -1138,7 +1160,8 @@ public class CodexScreen extends Screen {
         float textX = x + 16, textY = 998;
         float placeholder = anim("placeholder", input.isEmpty() ? 1 : 0, 20);
         if (placeholder > 0.01f) {
-            String hint = CodexChat.state() == CodexChat.State.NO_ACCOUNT ? "先点击左下角头像导入账号 JSON" : "向 Codex 发消息…";
+            String hint = CodexChat.state() == CodexChat.State.NO_ACCOUNT
+                    ? "先点击左下角头像登录 API 或导入 Codex" : "发送消息…";
             UiFont.SEMIBOLD.drawMiddle(g, hint, textX + (1 - placeholder) * 6, textY,
                     c(Render2D.fade(PLACEHOLDER, placeholder)));
         }
@@ -1172,18 +1195,10 @@ public class CodexScreen extends Screen {
         UiFont.ICON_S.icon(g, Icons.CIRCLE_ALERT, x + 69, rowY + 1, c(ORANGE));
         UiFont.SEMIBOLD.drawMiddle(g, "已启用 " + enabledCount() + " 个模块", x + 85, rowY, c(ORANGE));
 
-        // Model name in white, effort level in grey; clicking opens the picker, as Codex's does.
-        boolean linked = CodexChat.state() != CodexChat.State.NO_ACCOUNT;
-        String model = linked ? CodexChat.modelDisplay() : "未导入账号";
-        String effort = linked ? " " + CodexChat.effortLabel(CodexChat.effort()) : "";
-        float modelRight = x + w - 127;
-        UiFont.SEMIBOLD.drawRight(g, effort, modelRight, rowY, c(ICON));
-        UiFont.SEMIBOLD.drawRight(g, model, modelRight - UiFont.SEMIBOLD.width(effort), rowY, c(linked ? TEXT : ICON));
-        UiFont.ICON_S.icon(g, Icons.CHEVRON_DOWN, modelRight + 15, rowY + 1, c(ICON));
-        if (linked) {
-            float modelLeft = modelRight - UiFont.SEMIBOLD.width(effort) - UiFont.SEMIBOLD.width(model);
-            hit(modelLeft - 10, rowY - 14, modelRight + 26 - modelLeft, 28, () -> modelOpen = true, null);
-        }
+        // Model and effort; the button opens the reasoning slider card above the composer.
+        drawEffortTrigger(g, x + w - 94, rowY, UiFont.SEMIBOLD, UiFont.ICON_S, 10, 32, 8, TEXT, ICON, ITEM_ACTIVE);
+        effortAnchorRight = x + w;
+        effortAnchorBottom = rowY - 22;
         UiFont.ICON_M.icon(g, Icons.MIC, x + w - 72, rowY, c(TEXT_SIDEBAR));
 
         float sendX = x + w - 28, sendY = rowY;
@@ -1202,7 +1217,7 @@ public class CodexScreen extends Screen {
         drawCompletions(g, barX, 912, barW);
     }
 
-    private void drawCompletions(GuiGraphicsExtractor g, float x, float bottom, float w) {
+    protected void drawCompletions(GuiGraphicsExtractor g, float x, float bottom, float w) {
         float shown = anim("completions", completions.isEmpty() ? 0 : 1, 18);
         if (shown < 0.01f || completions.isEmpty()) return;
         int count = Math.min(6, completions.size());
@@ -1230,7 +1245,7 @@ public class CodexScreen extends Screen {
 
     // ---- overlays -----------------------------------------------------------------------------
 
-    private void drawToast(GuiGraphicsExtractor g, float cx) {
+    protected void drawToast(GuiGraphicsExtractor g, float cx) {
         String finished = CodexChat.pollFinishedNotice();
         if (finished != null) showToast(finished);
         long age = System.currentTimeMillis() - toastAt;
@@ -1252,7 +1267,7 @@ public class CodexScreen extends Screen {
     // ---- account popup ------------------------------------------------------------------------
 
     /** The full account panel: login by pasted JSON or path, status, usage and logout. */
-    private void drawAccountPopup(GuiGraphicsExtractor g) {
+    protected void drawAccountPopup(GuiGraphicsExtractor g) {
         float shown = anim("account", accountOpen ? 1 : 0, 20);
         if (shown < 0.01f) return;
         g.nextStratum();
@@ -1264,11 +1279,16 @@ public class CodexScreen extends Screen {
         clipX1 = 1e9f;
         clipY1 = 1e9f;
         Render2D.rect(g, 0, 0, W, H, c(Render2D.fade(0xA0000000, shown)));
-        float x = ACCOUNT_PANEL_X, y = ACCOUNT_PANEL_Y + (1 - shown) * 12, w = ACCOUNT_PANEL_W, h = ACCOUNT_PANEL_H;
+        float x = accountPanelX, y = accountPanelY + (1 - shown) * 12, w = ACCOUNT_PANEL_W, h = ACCOUNT_PANEL_H;
         Render2D.shadow(g, x, y, w, h, 16, 40, 16, c(Render2D.fade(0xB0000000, shown)));
         Render2D.roundedRect(g, x, y, w, h, 16, c(Render2D.fade(POPUP, shown)));
         Render2D.roundedOutline(g, x, y, w, h, 16, 1, c(Render2D.fade(POPUP_BORDER, shown)));
-        UiFont.TITLE.drawMiddle(g, "Codex 账号", x + 28, y + 42, c(Render2D.fade(TEXT, shown)));
+        // Background hit first: hits resolve last-to-first, so anything registered later (the
+        // header controls, the field, the buttons) still wins over this one.
+        hit(x, y, w, h, () -> accountFieldFocused = false, null);
+        UiFont.TITLE.drawMiddle(g, "账号与 API", x + 28, y + 42, c(Render2D.fade(TEXT, shown)));
+        drawLoginButton(g, x + w - 250, y + 26, 110, 32, "API 登录", this::openApiSettings);
+        iconButton(g, Icons.SETTINGS, x + w - 84, y + 42, 32, ICON, this::openApiSettings);
         iconButton(g, Icons.X, x + w - 42, y + 42, 32, ICON, () -> {
             accountOpen = false;
             accountFieldFocused = false;
@@ -1276,13 +1296,32 @@ public class CodexScreen extends Screen {
         Render2D.rect(g, x + 24, y + 68, w - 48, 1, c(Render2D.fade(HEADER_DIVIDER, shown)));
 
         CodexAccount acc = CodexChat.account();
-        // Collected before the field's hit: later hits win, so controls still receive clicks.
-        hit(x, y, w, h, () -> accountFieldFocused = false, null);
 
         float rowY = y + 96;
+        if (acc == null && CodexChat.genericConfigured()) {
+            Render2D.circle(g, x + 34, rowY, 4, c(Render2D.fade(0xFF4ADE80, shown)));
+            UiFont.SEMIBOLD.drawMiddle(g, "API 已连接", x + 48, rowY, c(Render2D.fade(TEXT, shown)));
+            UiFont.SMALL.drawMiddle(g, CodexChat.providerDetail(), x + 48, rowY + 22,
+                    c(Render2D.fade(TEXT_MUTED, shown)));
+
+            float cardY = rowY + 52;
+            Render2D.roundedRect(g, x + 28, cardY, w - 56, 108, 12, c(Render2D.fade(CARD, shown)));
+            Render2D.roundedOutline(g, x + 28, cardY, w - 56, 108, 12, 1, c(Render2D.fade(CARD_BORDER, shown)));
+            UiFont.SMALL.drawMiddle(g, "协议", x + 48, cardY + 28, c(Render2D.fade(TEXT_SECTION, shown)));
+            UiFont.SEMIBOLD.drawMiddle(g, CodexChat.providerName(), x + 130, cardY + 28, c(Render2D.fade(TEXT, shown)));
+            UiFont.SMALL.drawMiddle(g, "当前模型", x + 48, cardY + 58, c(Render2D.fade(TEXT_SECTION, shown)));
+            UiFont.SEMIBOLD.drawMiddle(g, CodexChat.modelDisplay(), x + 130, cardY + 58, c(Render2D.fade(TEXT, shown)));
+            UiFont.SMALL.drawMiddle(g, "模型列表由 API 提供，可在设置中重新获取", x + 48, cardY + 86,
+                    c(Render2D.fade(TEXT_MUTED, shown)));
+
+            float btnY = y + h - 74, btnH = 46;
+            drawLoginButton(g, x + 28, btnY, 170, btnH, "API 设置", this::openApiSettings);
+            drawLoginButton(g, x + 214, btnY, 150, btnH, "清空对话", this::clearChatAction);
+            return;
+        }
         if (acc == null) {
             Render2D.circle(g, x + 34, rowY, 4, c(Render2D.fade(0xFF5E6068, shown)));
-            UiFont.SEMIBOLD.drawMiddle(g, "未导入账号", x + 48, rowY, c(Render2D.fade(TEXT_SIDEBAR, shown)));
+            UiFont.SEMIBOLD.drawMiddle(g, "未配置 AI", x + 48, rowY, c(Render2D.fade(TEXT_SIDEBAR, shown)));
 
             // The login field: paste the JSON content itself or its full path, then 导入.
             float fieldX = x + 28, fieldY = rowY + 30, fieldW = w - 56, fieldH = 176;
@@ -1395,16 +1434,27 @@ public class CodexScreen extends Screen {
             }
 
             float btnY = y + h - 74, btnH = 46;
-            float clearW = 160, logoutW = 160;
-            boolean clearHover = hover(x + 28, btnY, clearW, btnH);
+            float apiW = 160, clearW = 140, logoutW = 160;
+            boolean apiHover = hover(x + 28, btnY, apiW, btnH);
+            float apiT = anim("accountApi", apiHover ? 1 : 0, 14);
+            Render2D.roundedRect(g, x + 28, btnY, apiW, btnH, 10,
+                    c(Render2D.fade(Render2D.mix(BUTTON, 0xFF4ADE80, apiT), shown)));
+            Render2D.roundedOutline(g, x + 28, btnY, apiW, btnH, 10, 1,
+                    c(Render2D.fade(Render2D.mix(POPUP_BORDER, TEXT_SIDEBAR, apiT), shown)));
+            UiFont.SEMIBOLD.drawCentered(g, "API 登录", x + 28 + apiW / 2, btnY + btnH / 2,
+                    c(Render2D.fade(TEXT, shown)));
+            hit(x + 28, btnY, apiW, btnH, this::openApiSettings, null);
+
+            float clearX = x + 28 + apiW + 14;
+            boolean clearHover = hover(clearX, btnY, clearW, btnH);
             float clearT = anim("accountClearChat", clearHover ? 1 : 0, 14);
-            Render2D.roundedRect(g, x + 28, btnY, clearW, btnH, 10,
+            Render2D.roundedRect(g, clearX, btnY, clearW, btnH, 10,
                     c(Render2D.fade(Render2D.mix(BUTTON, CARD_HOVER, clearT), shown)));
-            Render2D.roundedOutline(g, x + 28, btnY, clearW, btnH, 10, 1,
+            Render2D.roundedOutline(g, clearX, btnY, clearW, btnH, 10, 1,
                     c(Render2D.fade(Render2D.mix(POPUP_BORDER, TEXT_SIDEBAR, clearT), shown)));
-            UiFont.SEMIBOLD.drawCentered(g, "清空对话", x + 28 + clearW / 2, btnY + btnH / 2,
+            UiFont.SEMIBOLD.drawCentered(g, "清空对话", clearX + clearW / 2, btnY + btnH / 2,
                     c(Render2D.fade(TEXT_SIDEBAR, shown)));
-            hit(x + 28, btnY, clearW, btnH, this::clearChatAction, null);
+            hit(clearX, btnY, clearW, btnH, this::clearChatAction, null);
 
             float logoutX = x + w - 28 - logoutW;
             boolean logoutHover = hover(logoutX, btnY, logoutW, btnH);
@@ -1423,71 +1473,470 @@ public class CodexScreen extends Screen {
 
     // ---- model & effort picker ----------------------------------------------------------------
 
-    /** The model list and the pink effort slider, opened from the composer's model label. */
-    private void drawModelPopup(GuiGraphicsExtractor g) {
-        float shown = anim("modelPopup", modelOpen ? 1 : 0, 20);
-        if (shown < 0.01f) return;
-        g.nextStratum();
-        float x = MODEL_POPUP_X, y = MODEL_POPUP_Y + (1 - shown) * 10, w = MODEL_POPUP_W;
-        Render2D.shadow(g, x, y, MODEL_POPUP_W, MODEL_POPUP_H, 12, 30, 12, c(Render2D.fade(0x90000000, shown)));
-        Render2D.roundedRect(g, x, y, w, MODEL_POPUP_H, 12, c(Render2D.fade(POPUP, shown)));
-        Render2D.roundedOutline(g, x, y, w, MODEL_POPUP_H, 12, 1, c(Render2D.fade(POPUP_BORDER, shown)));
-        UiFont.SMALL.drawMiddle(g, "选择模型", x + 22, y + 26, c(Render2D.fade(TEXT_SECTION, shown)));
+    // ---- model & reasoning effort slider ------------------------------------------------------
+    //
+    // A port of bakabaicai/DSH-Codex-reasoning-effort-slider, itself a 1:1 copy of the Codex
+    // desktop slider: a 272x104 card with the Fast bolt and reset in its top corners, the level
+    // and model in the middle (click to pick a model) and a 26px rail under a 30px knob. Ultra
+    // (the top level) turns the fill into a drifting purple gradient with a shimmer and sparks,
+    // flashes a quota warning and bursts particles off the knob. Sizes are the original's CSS
+    // pixels times the style's k, so each window can scale it to its own type.
 
-        float rowY = y + 46;
-        for (CodexChat.Model candidate : CodexChat.MODELS) {
-            boolean active = candidate.slug().equals(CodexChat.model());
-            boolean hovered = hover(x + 8, rowY, w - 16, 32);
-            float t = anim("mrow" + candidate.slug(), active ? 1 : hovered ? 0.6f : 0, 18);
-            Render2D.roundedRect(g, x + 8, rowY, w - 16, 32, 8, c(Render2D.fade(ITEM_ACTIVE, t * shown)));
-            UiFont.SEMIBOLD.drawMiddle(g, candidate.name(), x + 22, rowY + 16,
-                    c(Render2D.fade(active ? TEXT : TEXT_SIDEBAR, shown)));
-            if (active) {
-                UiFont.ICON_S.icon(g, Icons.CIRCLE_CHECK, x + w - 30, rowY + 16, c(Render2D.fade(0xFF4ADE80, shown)));
-            }
-            hit(x + 8, rowY, w - 16, 32, () -> {
-                CodexChat.setModel(candidate.slug());
-                showToast("模型: " + candidate.name());
+    private static final int EFFORT_BLUE = 0xFF3988F6, EFFORT_BLUE_TEXT = 0xFF4A95F0;
+    private static final int ULTRA_PURPLE = 0xFFA96BF0, ULTRA_BOLT = 0xFF9B48EB, ULTRA_SPARK = 0xFFA56BE9;
+    private static final int[] ULTRA_STOPS = {0xFF3065DE, 0xFF7757EE, 0xFFB052F1, 0xFF7D42E7, 0xFF5631D0};
+    private static final float[] ULTRA_AT = {0, 0.32f, 0.53f, 0.76f, 1};
+    private static final int[][] SPARK_SEEDS = {{17, 15}, {20, 12}, {28, 18}, {48, 21}, {69, 23}, {95, 15}, {112, 20},
+            {134, 15}, {138, 24}, {150, 9}, {165, 20}, {177, 10}, {190, 22}, {198, 26}, {217, 15},
+            {237, 18}, {254, 12}, {275, 24}, {290, 14}, {315, 20}};
+    private static final String ULTRA_WARNING = "更快消耗使用额度";
+
+    /** Scale, fonts and colours of the slider card; each window passes its own. */
+    protected record EffortStyle(float k, UiFont heading, UiFont caption, UiFont option, UiFont icon, UiFont smallIcon,
+                                 int background, int border, int text, int secondary, int muted,
+                                 int hoverBg, int rail, int knob) {
+    }
+
+    /** The Fast bolt only changes the animation, exactly like the original. */
+    protected static boolean fastMode;
+    protected boolean effortModels, effortDragging;
+    /** The level shown while dragging, committed on release; -1 shows the saved one. */
+    protected int effortPreview = -1;
+    protected long ultraEnteredAt;
+    protected float effortAnchorRight, effortAnchorBottom;
+    protected float effortPopupX, effortPopupY, effortPopupW, effortPopupH;
+    protected float effortTriggerX, effortTriggerY, effortTriggerW, effortTriggerH;
+    private float effortRailX, effortRailY, effortRailW, effortK = 1;
+    private float sparkSpeed, sparkFrom, sparkTarget, sparkTravel;
+    private long sparkChangedAt;
+    private Runnable effortTooltip;
+
+    protected EffortStyle effortStyle() {
+        return new EffortStyle(1.2f, UiFont.SEMIBOLD, UiFont.SMALL, UiFont.SMALL, UiFont.ICON_S, UiFont.Z_ICON_XS,
+                POPUP, POPUP_BORDER, TEXT, 0xFFB4B5BA, ICON, ITEM_ACTIVE, 0xFF454752, 0xFFF2F2F4);
+    }
+
+    /**
+     * The composer's model button, "[bolt] Model Effort ⌄", right-aligned at {@code right}: the
+     * level turns purple at Ultra, a bolt leads while Fast is on and the chevron turns over while
+     * the card is open. Without an account it only says so.
+     */
+    protected void drawEffortTrigger(GuiGraphicsExtractor g, float right, float cy, UiFont font, UiFont icon,
+                                     float padX, float height, float radius, int text, int muted, int hoverBg) {
+        boolean linked = CodexChat.state() != CodexChat.State.NO_ACCOUNT;
+        String model = linked ? CodexChat.modelDisplay() : "未配置 AI";
+        String effort = linked ? " " + CodexChat.effortLabel(CodexChat.effort()) : "";
+        boolean ultra = linked && CodexChat.effortIndex() == CodexChat.EFFORTS.length - 1;
+        float iconW = icon.size();
+        float boltW = linked && fastMode ? iconW + 3 : 0;
+        float w = padX + boltW + font.width(model) + font.width(effort) + 5 + iconW + padX * 0.6f;
+        float x = right - w, y = cy - height / 2;
+        float t = anim("effortTrigger", linked && (hover(x, y, w, height) || modelOpen) ? 1 : 0, 18);
+        Render2D.roundedRect(g, x, y, w, height, radius, c(Render2D.fade(hoverBg, t)));
+        float tx = x + padX;
+        if (boltW > 0) {
+            drawBolt(g, tx + iconW / 2, cy, iconW * 0.82f, c(text), true);
+            tx += boltW;
+        }
+        font.drawMiddle(g, model, tx, cy, c(linked ? text : muted));
+        tx += font.width(model);
+        font.drawMiddle(g, effort, tx, cy, c(ultra ? ULTRA_PURPLE : muted));
+        tx += font.width(effort) + 5;
+        float turn = ease(anim("effortChevron", modelOpen ? 1 : 0, 16));
+        float chevronX = tx + iconW / 2;
+        g.pose().pushMatrix();
+        g.pose().translate(chevronX, cy);
+        g.pose().rotate((float) Math.PI * turn);
+        g.pose().translate(-chevronX, -cy);
+        icon.icon(g, Icons.CHEVRON_DOWN, chevronX, cy, c(muted));
+        g.pose().popMatrix();
+        effortTriggerX = x;
+        effortTriggerY = y;
+        effortTriggerW = w;
+        effortTriggerH = height;
+        if (linked) {
+            hit(x, y, w, height, () -> {
+                if (modelOpen) closeEffortPopup();
+                else {
+                    modelOpen = true;
+                    effortModels = false;
+                }
             }, null);
-            rowY += 34;
         }
+    }
 
-        rowY += 6;
-        Render2D.rect(g, x + 22, rowY, w - 44, 1, c(Render2D.fade(HEADER_DIVIDER, shown)));
-        rowY += 18;
-        UiFont.SMALL.drawMiddle(g, "推理力度", x + 22, rowY, c(Render2D.fade(TEXT_SECTION, shown)));
-        UiFont.SEMIBOLD.drawCentered(g, CodexChat.effortLabel(CodexChat.effort()), x + w / 2, rowY,
-                c(Render2D.fade(PINK, shown)));
-        UiFont.SMALL.drawRight(g, CodexChat.effort(), x + w - 22, rowY, c(Render2D.fade(TEXT_MUTED, shown)));
-
-        float trackX = x + 22, trackW = w - 44, trackY = rowY + 30;
-        Render2D.roundedRect(g, trackX, trackY - 2, trackW, 4, 2, c(Render2D.fade(TRACK, shown)));
-        int index = CodexChat.effortIndex();
-        float step = trackW / (CodexChat.EFFORTS.length - 1);
-        float fill = step * index;
-        if (fill > 1) Render2D.roundedRect(g, trackX, trackY - 2, fill, 4, 2, c(Render2D.fade(PINK, shown)));
-        for (int i = 0; i < CodexChat.EFFORTS.length; i++) {
-            Render2D.circle(g, trackX + step * i, trackY, i <= index ? 3 : 2,
-                    c(Render2D.fade(i <= index ? PINK : TRACK, shown)));
+    /** Lucide's zap, filled when {@code filled} (the outline glyph alone otherwise). */
+    protected void drawBolt(GuiGraphicsExtractor g, float cx, float cy, float size, int color, boolean filled) {
+        float u = size / 24f, ox = cx - 12 * u, oy = cy - 12 * u;
+        if (filled) {
+            Render2D.quad(g, ox + 4 * u, oy + 14 * u, ox + 13.6f * u, oy + 2.2f * u, ox + 11.6f * u, oy + 10 * u,
+                    ox + 12.4f * u, oy + 14 * u, color, color, color, color);
+            Render2D.quad(g, ox + 11.6f * u, oy + 10 * u, ox + 20 * u, oy + 10 * u, ox + 10.4f * u, oy + 21.8f * u,
+                    ox + 12.4f * u, oy + 14 * u, color, color, color, color);
         }
-        boolean onTrack = hover(trackX - 10, trackY - 16, trackW + 20, 32);
-        Render2D.circle(g, trackX + fill, trackY, onTrack ? 10 : 9, c(Render2D.fade(0xFFF8F8F2, shown)));
-        hit(trackX - 10, trackY - 16, trackW + 20, 32, () -> {
-            int target = Math.round((mouseX - trackX) / step);
-            target = Math.max(0, Math.min(CodexChat.EFFORTS.length - 1, target));
-            CodexChat.setEffort(CodexChat.EFFORTS[target]);
-            showToast("推理力度: " + CodexChat.effortLabel(CodexChat.effort()));
+        float scale = size / UiFont.ICON_S.size();
+        g.pose().pushMatrix();
+        g.pose().translate(cx, cy);
+        g.pose().scale(scale, scale);
+        UiFont.ICON_S.icon(g, Icons.ZAP, 0, 0, color);
+        g.pose().popMatrix();
+    }
+
+    protected void closeEffortPopup() {
+        if (effortDragging) commitEffort();
+        modelOpen = false;
+    }
+
+    protected boolean insideEffortPopup(float px, float py) {
+        boolean card = effortPopupW > 0 && px >= effortPopupX && px < effortPopupX + effortPopupW
+                && py >= effortPopupY && py < effortPopupY + effortPopupH;
+        boolean trigger = px >= effortTriggerX && px < effortTriggerX + effortTriggerW
+                && py >= effortTriggerY && py < effortTriggerY + effortTriggerH;
+        return card || trigger;
+    }
+
+    private void setEffortPreview(int level) {
+        int max = CodexChat.EFFORTS.length - 1;
+        int before = effortPreview >= 0 ? effortPreview : CodexChat.effortIndex();
+        effortPreview = level;
+        if (level == max && before != max) ultraEnteredAt = System.currentTimeMillis();
+        else if (level != max) ultraEnteredAt = 0;
+    }
+
+    protected void commitEffort() {
+        if (effortPreview >= 0 && effortPreview != CodexChat.effortIndex()) {
+            CodexChat.setEffort(CodexChat.EFFORTS[effortPreview]);
+        }
+        effortPreview = -1;
+        effortDragging = false;
+    }
+
+    private int nearestEffort() {
+        float travel = Math.max(1, effortRailW - 30 * effortK);
+        float f = Math.max(0, Math.min(1, (mouseX - effortRailX - 15 * effortK) / travel));
+        return Math.round(f * (CodexChat.EFFORTS.length - 1));
+    }
+
+    /** The card, opened above the trigger with its bottom-right corner at the anchor. */
+    protected void drawEffortPopup(GuiGraphicsExtractor g, EffortStyle st) {
+        float shown = anim("effortPopup", modelOpen ? 1 : 0, 20);
+        if (shown < 0.01f) {
+            effortPopupW = 0;
+            ultraEnteredAt = 0;
+            return;
+        }
+        float k = st.k();
+        effortK = k;
+        if (effortDragging) setEffortPreview(nearestEffort());
+        int index = effortPreview >= 0 ? effortPreview : CodexChat.effortIndex();
+        boolean ultra = index == CodexChat.EFFORTS.length - 1;
+
+        float models = ease(anim("effortModels", effortModels ? 1 : 0, 16));
+        float mainH = 104 * k, modelsH = (5 + 24 + Math.max(1, CodexChat.models().size()) * 30 + 5) * k;
+        float h = mainH + (modelsH - mainH) * models, w = 272 * k;
+        float x = Math.round(Math.max(8, Math.min(W - 8 - w, effortAnchorRight - w)));
+        float bottom = effortAnchorBottom + (1 - shown) * 5 * k, y = bottom - h;
+        effortPopupX = x;
+        effortPopupY = effortAnchorBottom - h;
+        effortPopupW = w;
+        effortPopupH = h;
+
+        g.nextStratum();
+        Render2D.shadow(g, x, y, w, h, 14 * k, 34 * k, 10 * k, c(Render2D.fade(0x8C000000, shown)));
+        Render2D.roundedRect(g, x, y, w, h, 14 * k, c(Render2D.fade(st.background(), shown)));
+        Render2D.roundedOutline(g, x, y, w, h, 14 * k, 1, c(Render2D.fade(st.border(), shown)));
+        hit(x, y, w, h, () -> {
         }, null);
+        effortTooltip = null;
+        pushClip(g, x, y, w, h);
+        if (models < 0.99f) {
+            drawEffortMain(g, x, bottom - mainH + models * 5 * k, w, st, shown * (1 - models), index, ultra,
+                    modelOpen && !effortModels);
+        }
+        if (models > 0.01f) {
+            drawEffortModels(g, x, bottom - modelsH + (1 - models) * 5 * k, w, st, shown * models,
+                    modelOpen && effortModels);
+        }
+        popClip(g);
+        if (models < 0.5f) drawUltraBurst(g, k, shown);
+        if (effortTooltip != null) effortTooltip.run();
+    }
+
+    private void drawEffortMain(GuiGraphicsExtractor g, float x, float y, float w, EffortStyle st, float fade,
+                                int index, boolean ultra, boolean live) {
+        float k = st.k();
+        long now = System.currentTimeMillis();
+        boolean message = ultraEnteredAt > 0 && now - ultraEnteredAt < 1800;
+        float messageT = anim("effortMessage", message ? 1 : 0, 14);
+        float toolFade = fade * (1 - messageT);
+
+        // Fast, top-left.
+        float ts = 28 * k, fx = x + 7 * k, fy = y + 7 * k;
+        boolean fastHover = live && !message && hover(fx, fy, ts, ts);
+        float fh = anim("effortFastHover", fastHover ? 1 : 0, 20);
+        Render2D.roundedRect(g, fx, fy, ts, ts, 8 * k, c(Render2D.fade(st.hoverBg(), fh * toolFade)));
+        int fastColor = fastMode ? (ultra ? ULTRA_BOLT : EFFORT_BLUE) : st.muted();
+        drawBolt(g, fx + ts / 2, fy + ts / 2, 16 * k, c(Render2D.fade(fastColor, toolFade)), fastMode);
+        if (live && !message) {
+            hit(fx, fy, ts, ts, () -> fastMode = !fastMode, null);
+            if (fastHover) {
+                effortTooltip = () -> drawEffortTooltip(g, st, fx + ts / 2, fy - 4 * k, false,
+                        "1.5倍速", "用量更多(无实际作用)");
+            }
+        }
+
+        // Reset, top-right.
+        float rx = x + w - 7 * k - ts;
+        boolean resetHover = live && !message && hover(rx, fy, ts, ts);
+        float rh = anim("effortResetHover", resetHover ? 1 : 0, 20);
+        Render2D.roundedRect(g, rx, fy, ts, ts, 8 * k, c(Render2D.fade(st.hoverBg(), rh * toolFade)));
+        st.icon().icon(g, Icons.ROTATE_CCW, rx + ts / 2, fy + ts / 2, c(Render2D.fade(st.muted(), toolFade)));
+        if (live && !message) {
+            hit(rx, fy, ts, ts, () -> {
+                effortPreview = -1;
+                ultraEnteredAt = 0;
+                CodexChat.setEffort(CodexChat.DEFAULT_EFFORT);
+            }, null);
+            if (resetHover) {
+                effortTooltip = () -> drawEffortTooltip(g, st, rx + ts + 15 * k, fy - 4 * k, true, "重置为默认", null);
+            }
+        }
+
+        // The level and model in the middle open the model list.
+        float lx = x + 43 * k, lw = w - 86 * k, ly = y + 8 * k, lh = 42 * k;
+        boolean linkHover = live && !message && hover(lx, ly, lw, lh);
+        float linkT = anim("effortLinkHover", linkHover ? 1 : 0, 20);
+        Render2D.roundedRect(g, lx, ly, lw, lh, 5 * k, c(Render2D.fade(st.hoverBg(), linkT * toolFade)));
+        String label = CodexChat.effortLabel(CodexChat.EFFORTS[index]);
+        float chevron = st.smallIcon().size();
+        float headingW = st.heading().width(label) + 3 * k + chevron;
+        float headingX = x + w / 2 - headingW / 2, headingY = ly + 12 * k;
+        st.heading().drawMiddle(g, label, headingX, headingY,
+                c(Render2D.fade(ultra ? ULTRA_PURPLE : EFFORT_BLUE_TEXT, toolFade)));
+        st.smallIcon().icon(g, Icons.CHEVRON_RIGHT, headingX + headingW - chevron / 2, headingY + k,
+                c(Render2D.fade(st.muted(), toolFade)));
+        String model = st.caption().ellipsize(CodexChat.modelDisplay(), lw - 8 * k);
+        st.caption().drawCentered(g, model, x + w / 2, ly + 31 * k, c(Render2D.fade(st.secondary(), toolFade)));
+        if (live && !message) hit(lx, ly, lw, lh, () -> effortModels = true, null);
+
+        // The quota warning that replaces the header for a moment on entering Ultra.
+        if (messageT > 0.01f) drawUltraWarning(g, st, x + w / 2, y + 29 * k, fade * messageT, now);
+
+        // The rail.
+        float railX = x + 12 * k, railY = y + 65 * k, railW = w - 24 * k, railH = 26 * k, radius = 13 * k;
+        effortRailX = railX;
+        effortRailY = railY;
+        effortRailW = railW;
+        int levels = CodexChat.EFFORTS.length;
+        float travel = railW - 30 * k;
+        float pos = anim("effortPos", index / (float) (levels - 1), 20);
+        float fillW = travel * pos + 15 * k;
+        Render2D.roundedRect(g, railX, railY, railW, railH, radius, c(Render2D.fade(st.rail(), fade)));
+
+        float ultraT = anim("effortUltra", ultra ? 1 : 0, ultra ? 2.2f : 3.2f);
+        float slide = ease(anim("effortUltraSlide", ultra ? 1 : 0, 2.6f));
+        double clock = (now - openedAt) / 1000.0;
+        // The overlay box is the fill plus 24px each side; it slides in from 42% to the right.
+        float glowW = fillW + 48 * k, glowX = railX - 24 * k + glowW * 0.42f * (1 - slide);
+        // The shimmer box is the fill plus 40px each side, swinging -45%..45% every 4.5s.
+        double swing = (clock % 9.0) / 4.5;
+        swing = swing > 1 ? 2 - swing : swing;
+        swing = swing * swing * (3 - 2 * swing);
+        float shineW = fillW + 80 * k, shineX = railX - 40 * k + shineW * (float) (-0.45 + 0.9 * swing);
+        Render2D.gradientBar(g, railX, railY, fillW, railH, radius, 0, px -> {
+            int color = EFFORT_BLUE;
+            if (ultraT > 0.001f) {
+                float u = (px - glowX) / glowW;
+                if (u >= 0 && u <= 1) {
+                    float mask = u < 0.22f ? u / 0.22f : u > 0.78f ? (1 - u) / 0.22f : 1;
+                    color = Render2D.mix(color, ultraGradient(u), 0.9f * ultraT * mask);
+                }
+                float v = (px - shineX) / shineW;
+                color = Render2D.mix(color, 0xFFFFFFFF, ultraT * shimmer(v));
+            }
+            return c(Render2D.fade(color, fade));
+        });
+        drawSparks(g, railX, railY, fillW, railH, k, fade, ultra, clock);
+
+        // The level dots: white once passed, hidden under Ultra and under Fast's sparks.
+        int hovered = live && (effortDragging || hover(railX, railY - 4 * k, railW, railH + 8 * k)) ? nearestEffort() : -1;
+        float dots = anim("effortDots", ultra ? 0 : 1, ultra ? 30 : 9);
+        for (int i = 0; i < levels; i++) {
+            float covered = anim("effortCovered" + i, fastMode && i < index ? 0 : 1, 14);
+            float alpha = dots * covered * fade;
+            if (alpha < 0.01f) continue;
+            float grow = anim("effortDot" + i, hovered == i ? 1.75f : 1, 22);
+            float cx = railX + 15 * k + travel * i / (levels - 1);
+            int color = i <= index ? 0x65FFFFFF : st.muted();
+            Render2D.circle(g, cx, railY + 13 * k, 2 * k * grow, c(Render2D.fade(color, alpha)));
+        }
+
+        // The knob.
+        float knobX = railX + travel * pos, knobY = railY - 2 * k, size = 30 * k;
+        boolean knobHover = live && (effortDragging || hover(knobX, knobY, size, size));
+        float scale = anim("effortKnob", knobHover ? 1.08f : 1, 22);
+        float r = size / 2 * scale, cx = knobX + size / 2, cy = knobY + size / 2;
+        Render2D.shadow(g, cx - r, cy - r, r * 2, r * 2, r, 10 * k, 2 * k, c(Render2D.fade(0x70000000, fade)));
+        Render2D.circle(g, cx, cy, r, c(Render2D.fade(st.knob(), fade)));
+        Render2D.circleOutline(g, cx, cy, r, 0.5f * k, c(Render2D.fade(0x26000000, fade)));
+        if (live) {
+            hit(railX, knobY, railW, size, () -> {
+                effortDragging = true;
+                setEffortPreview(nearestEffort());
+            }, null);
+        }
+    }
+
+    /** The Ultra overlay: 95deg, #3065de 0%, #7757ee 32%, #b052f1 53%, #7d42e7 76%, #5631d0 100%. */
+    private static int ultraGradient(float u) {
+        for (int i = 1; i < ULTRA_AT.length; i++) {
+            if (u <= ULTRA_AT[i]) {
+                return Render2D.mix(ULTRA_STOPS[i - 1], ULTRA_STOPS[i], (u - ULTRA_AT[i - 1]) / (ULTRA_AT[i] - ULTRA_AT[i - 1]));
+            }
+        }
+        return ULTRA_STOPS[ULTRA_STOPS.length - 1];
+    }
+
+    /** White strength of the shimmer band: clear at 18%, 3% at 35%, 19% at 48%, 2% at 66%, clear at 84%. */
+    private static float shimmer(float v) {
+        float[] at = {0.18f, 0.35f, 0.48f, 0.66f, 0.84f};
+        float[] alpha = {0, 0.03f, 0.19f, 0.024f, 0};
+        if (v <= at[0] || v >= at[4]) return 0;
+        for (int i = 1; i < at.length; i++) {
+            if (v <= at[i]) return alpha[i - 1] + (alpha[i] - alpha[i - 1]) * (v - at[i - 1]) / (at[i] - at[i - 1]);
+        }
+        return 0;
+    }
+
+    /** The star field inside the fill: twinkling in place, streaming left once Ultra and Fast are both on. */
+    private void drawSparks(GuiGraphicsExtractor g, float railX, float railY, float fillW, float railH, float k,
+                            float fade, boolean ultra, double clock) {
+        long now = System.currentTimeMillis();
+        float target = ultra && fastMode ? 1 : 0;
+        if (target != sparkTarget) {
+            sparkFrom = sparkSpeed;
+            sparkTarget = target;
+            sparkChangedAt = now;
+        }
+        float p = Math.min(1, Math.max(0, (now - sparkChangedAt) / (target > 0 ? 600f : 750f)));
+        sparkSpeed = sparkFrom + (sparkTarget - sparkFrom) * p * p * (3 - 2 * p);
+        if (ultra) sparkTravel += dt * sparkSpeed;
+        float shown = anim("effortSparks", ultra || fastMode ? 1 : 0, 10) * fade;
+        if (shown < 0.01f) return;
+        float speed = ultra ? sparkSpeed : 0;
+        float width = effortRailW / k;
+        pushClip(g, railX, railY, fillW, railH);
+        for (int i = 0; i < SPARK_SEEDS.length; i++) {
+            double phase = i * 2.39;
+            double offset = ultra ? sparkTravel * (145 + i % 6 * 17) : 0;
+            double sx = SPARK_SEEDS[i][0] / 346.0 * width - offset + Math.sin(clock * 9 + phase) * 0.7 * (1 - speed);
+            sx = (sx % width + width) % width;
+            double sy = (SPARK_SEEDS[i][1] + Math.cos(clock * 10 + phase) * 0.55 * (1 - speed)
+                    + Math.sin(clock * 1.3 + phase) * 0.8 * speed) * 26 / 36;
+            double idle = 0.55 + 0.3 * (0.5 + 0.5 * Math.sin(clock * 1.1 + phase));
+            double moving = 0.3 + 0.45 * (0.5 + 0.5 * Math.sin(clock * 2.4 + phase));
+            float radius = (i % 7 == 0 ? 2.1f : i % 4 == 0 ? 1.55f : 1.1f) * 26 / 36f;
+            float alpha = (float) (idle + (moving - idle) * speed) * shown;
+            Render2D.circle(g, railX + (float) sx * k, railY + (float) sy * k, radius * k,
+                    c(Render2D.withAlpha(0xFFFFFF, Math.round(255 * alpha))));
+        }
+        popClip(g);
+    }
+
+    /** 22 purple specks thrown off the knob 220ms after Ultra is reached, gone after 520ms. */
+    private void drawUltraBurst(GuiGraphicsExtractor g, float k, float fade) {
+        if (ultraEnteredAt == 0) return;
+        float age = (System.currentTimeMillis() - ultraEnteredAt - 220) / 1000f;
+        if (age < 0 || age >= 0.52f) return;
+        float unit = 52f / 144f * k;
+        float cx = effortRailX + effortRailW - 15 * k, cy = effortRailY + 13 * k;
+        int color = Render2D.withAlpha(ULTRA_SPARK, Math.round(255 * 0.7f * (1 - age / 0.52f) * fade));
+        for (int i = 0; i < 22; i++) {
+            double angle = i * 2.399 + 0.18;
+            float px = cx + (float) (Math.cos(angle) * (43 + (48 + i % 5 * 12) * age * 2)) * unit;
+            float py = cy + (float) (Math.sin(angle) * (43 + (48 + i % 4 * 10) * age * 2)) * unit;
+            float radius = (i % 6 == 0 ? 2.3f : 1.35f) * 2 * (1 - age) * unit;
+            Render2D.circle(g, px, py, radius, c(color));
+        }
+    }
+
+    /** "更快消耗使用额度" in purple with a bright band sweeping across it once. */
+    private void drawUltraWarning(GuiGraphicsExtractor g, EffortStyle st, float cx, float cy, float fade, long now) {
+        UiFont font = st.heading();
+        float total = font.width(ULTRA_WARNING);
+        float p = Math.max(0, Math.min(1, (now - ultraEnteredAt - 200) / 1100f));
+        float band = (-0.5f + 2 * p) * total, half = 0.24f * total;
+        float left = cx - total / 2, x = left;
+        for (int i = 0; i < ULTRA_WARNING.length(); i++) {
+            String ch = String.valueOf(ULTRA_WARNING.charAt(i));
+            float cw = font.width(ch);
+            float d = Math.abs(x + cw / 2 - left - band) / half;
+            int color = Render2D.mix(ULTRA_PURPLE, 0xFFF0E2FF, Math.max(0, 1 - d));
+            font.drawMiddle(g, ch, x, cy, c(Render2D.fade(color, fade)));
+            x += cw;
+        }
+    }
+
+    /** A small card above a tool button: centred on {@code anchorX}, or ending there when {@code alignRight}. */
+    private void drawEffortTooltip(GuiGraphicsExtractor g, EffortStyle st, float anchorX, float bottom,
+                                   boolean alignRight, String first, String second) {
+        float k = st.k();
+        UiFont font = st.caption();
+        float lineH = 18 * k;
+        float w = Math.max(font.width(first), second == null ? 0 : font.width(second)) + 18 * k;
+        float h = (second == null ? 1 : 2) * lineH + 12 * k;
+        float x = alignRight ? anchorX - w : anchorX - w / 2, y = bottom - h;
+        Render2D.shadow(g, x, y, w, h, 8 * k, 18 * k, 4 * k, c(0x80000000));
+        Render2D.roundedRect(g, x, y, w, h, 8 * k, c(st.background()));
+        Render2D.roundedOutline(g, x, y, w, h, 8 * k, 1, c(st.border()));
+        font.drawCentered(g, first, x + w / 2, y + 6 * k + lineH / 2, c(st.text()));
+        if (second != null) font.drawCentered(g, second, x + w / 2, y + 6 * k + lineH * 1.5f, c(st.secondary()));
+    }
+
+    /** The model list that slides in over the slider, with a back button. */
+    private void drawEffortModels(GuiGraphicsExtractor g, float x, float y, float w, EffortStyle st, float fade,
+                                  boolean live) {
+        float k = st.k(), pad = 5 * k;
+        float titleY = y + pad + 12 * k;
+        st.caption().drawMiddle(g, "选择模型", x + pad + 8 * k, titleY, c(Render2D.fade(st.muted(), fade)));
+        float bs = 22 * k, bx = x + w - pad - 2 * k - bs, by = titleY - bs / 2;
+        boolean backHover = live && hover(bx, by, bs, bs);
+        float bh = anim("effortBack", backHover ? 1 : 0, 20);
+        Render2D.roundedRect(g, bx, by, bs, bs, 5 * k, c(Render2D.fade(st.hoverBg(), bh * fade)));
+        st.smallIcon().icon(g, Icons.CHEVRON_LEFT, bx + bs / 2, by + bs / 2, c(Render2D.fade(st.muted(), fade)));
+        if (live) hit(bx, by, bs, bs, () -> effortModels = false, null);
+
+        float rowY = y + pad + 24 * k, rowH = 30 * k;
+        List<CodexChat.Model> modelList = CodexChat.models();
+        for (CodexChat.Model candidate : modelList) {
+            boolean active = candidate.slug().equals(CodexChat.model());
+            boolean hovered = live && hover(x + pad, rowY, w - pad * 2, rowH);
+            float t = anim("effortRow" + candidate.slug(), hovered ? 1 : 0, 20);
+            Render2D.roundedRect(g, x + pad, rowY, w - pad * 2, rowH, 8 * k, c(Render2D.fade(st.hoverBg(), t * fade)));
+            st.option().drawMiddle(g, st.option().ellipsize(candidate.name(), w - pad * 2 - 40 * k),
+                    x + pad + 8 * k, rowY + rowH / 2, c(Render2D.fade(st.text(), fade)));
+            if (active) {
+                st.icon().icon(g, Icons.CHECK, x + w - pad - 8 * k - st.icon().size() / 2, rowY + rowH / 2,
+                        c(Render2D.fade(st.text(), fade)));
+            }
+            if (live) {
+                hit(x + pad, rowY, w - pad * 2, rowH, () -> {
+                    CodexChat.setModel(candidate.slug());
+                    effortModels = false;
+                }, null);
+            }
+            rowY += rowH;
+        }
     }
 
     // ---- usage popup --------------------------------------------------------------------------
 
     /** Quota card from the x-codex-* headers, opened from the sidebar's bell. */
-    private void drawUsagePopup(GuiGraphicsExtractor g) {
+    protected void drawUsagePopup(GuiGraphicsExtractor g) {
         float shown = anim("usagePopup", usageOpen ? 1 : 0, 20);
         if (shown < 0.01f) return;
         g.nextStratum();
-        float x = USAGE_POPUP_X, y = USAGE_POPUP_Y + (1 - shown) * 10, w = USAGE_POPUP_W, h = USAGE_POPUP_H;
+        float x = usagePopupX, y = usagePopupY + (1 - shown) * 10, w = USAGE_POPUP_W, h = USAGE_POPUP_H;
         Render2D.shadow(g, x, y, w, h, 12, 30, 12, c(Render2D.fade(0x90000000, shown)));
         Render2D.roundedRect(g, x, y, w, h, 12, c(Render2D.fade(POPUP, shown)));
         Render2D.roundedOutline(g, x, y, w, h, 12, 1, c(Render2D.fade(POPUP_BORDER, shown)));
@@ -1540,7 +1989,7 @@ public class CodexScreen extends Screen {
     }
 
     /** The quota only ships on real generations, so refreshing sends one minimal probe. */
-    private void refreshUsage() {
+    protected void refreshUsage() {
         if (CodexChat.state() == CodexChat.State.THINKING) {
             showToast("回复结束后再刷新");
             return;
@@ -1552,7 +2001,7 @@ public class CodexScreen extends Screen {
         });
     }
 
-    private static String planName(String plan) {
+    protected static String planName(String plan) {
         return switch (plan) {
             case "plus" -> "Plus";
             case "prolite" -> "Pro Lite";
@@ -1564,7 +2013,7 @@ public class CodexScreen extends Screen {
         };
     }
 
-    private void drawMenuDropdown(GuiGraphicsExtractor g) {
+    protected void drawMenuDropdown(GuiGraphicsExtractor g) {
         float shown = anim("dropdown", openMenu >= 0 ? 1 : 0, 20);
         int menu = openMenu >= 0 ? openMenu : lastMenu;
         if (shown < 0.01f || menu < 0) return;
@@ -1641,11 +2090,11 @@ public class CodexScreen extends Screen {
         }
     }
 
-    private int lastMenu = -1;
+    protected int lastMenu = -1;
 
     // ---- actions ------------------------------------------------------------------------------
 
-    private void navigate(Place target) {
+    protected void navigate(Place target) {
         mainView = MainView.MODULES;
         if (isSearching()) {
             input = "";
@@ -1657,31 +2106,31 @@ public class CodexScreen extends Screen {
         setPlace(target);
     }
 
-    private void goBack() {
+    protected void goBack() {
         if (back.isEmpty()) return;
         forward.push(place);
         setPlace(back.pop());
     }
 
-    private void goForward() {
+    protected void goForward() {
         if (forward.isEmpty()) return;
         back.push(place);
         setPlace(forward.pop());
     }
 
-    private void setPlace(Place target) {
+    protected void setPlace(Place target) {
         place = target;
         placeChangedAt = System.currentTimeMillis();
         targetScroll = 0;
         if (target.view() == View.RECENT) recentOpen = true;
     }
 
-    private void select(Module module) {
+    protected void select(Module module) {
         selected = module;
         binding = null;
     }
 
-    private void toggleModule(Module module) {
+    protected void toggleModule(Module module) {
         module.toggle();
         RECENT.remove(module);
         RECENT.addFirst(module);
@@ -1690,7 +2139,7 @@ public class CodexScreen extends Screen {
         Client.instance.getConfigManager().saveAllConfig();
     }
 
-    private void submit() {
+    protected void submit() {
         String text = input.trim();
         if (text.isEmpty()) return;
         if (renamePending != null) {
@@ -1710,12 +2159,12 @@ public class CodexScreen extends Screen {
         updateCompletions();
     }
 
-    /** Non-command input with no module match becomes a Codex chat turn. */
-    private void sendToCodex(String text) {
+    /** Non-command input with no module match becomes a chat turn. */
+    protected void sendToCodex(String text) {
         CodexChat.ensureLoaded();
         if (CodexChat.state() == CodexChat.State.NO_ACCOUNT) {
             accountOpen = true;
-            showToast("先导入账号 JSON 才能对话");
+            showToast("先登录 API 或导入 Codex 账号才能对话");
             return;
         }
         if (CodexChat.state() == CodexChat.State.THINKING) {
@@ -1728,31 +2177,31 @@ public class CodexScreen extends Screen {
         CodexChat.send(text);
     }
 
-    private void runCommand(String text) {
+    protected void runCommand(String text) {
         boolean known = Client.instance.getCommandManager().execute(text.substring(CommandManager.PREFIX.length()));
         showToast(known ? "已执行 " + text : "未知指令 " + text);
     }
 
-    private void showToast(String text) {
+    protected void showToast(String text) {
         toastError = false;
         toast = text;
         toastAt = System.currentTimeMillis();
     }
 
-    private void showToastError(String text) {
+    protected void showToastError(String text) {
         toastError = true;
         toast = text;
         toastAt = System.currentTimeMillis();
     }
 
-    private void updateCompletions() {
+    protected void updateCompletions() {
         completions = input.startsWith(CommandManager.PREFIX)
                 ? Client.instance.getCommandManager().getCompletions(input)
                 : List.of();
         completionIndex = Math.min(completionIndex, Math.max(0, completions.size() - 1));
     }
 
-    private void applyCompletion() {
+    protected void applyCompletion() {
         if (completions.isEmpty()) return;
         String choice = completions.get(completionIndex);
         int space = input.lastIndexOf(' ');
@@ -1761,11 +2210,11 @@ public class CodexScreen extends Screen {
         updateCompletions();
     }
 
-    private boolean isSearching() {
+    protected boolean isSearching() {
         return !input.isBlank() && !input.startsWith(CommandManager.PREFIX);
     }
 
-    private List<Module> visibleModules() {
+    protected List<Module> visibleModules() {
         List<Module> all = Client.instance.getModuleManager().getModules();
         if (isSearching()) {
             String query = displayClip(input.trim().toLowerCase(Locale.ROOT), 64);
@@ -1779,22 +2228,22 @@ public class CodexScreen extends Screen {
         };
     }
 
-    private int count(Category category) {
+    protected int count(Category category) {
         return Client.instance.getModuleManager().getModulesByCategory(category).size();
     }
 
-    private long enabledCount() {
+    protected long enabledCount() {
         return Client.instance.getModuleManager().getModules().stream()
                 .filter(m -> m.isEnabled() && !m.isMomentaryAction()).count();
     }
 
-    private void dragValue(NumberValue number) {
+    protected void dragValue(NumberValue number) {
         float fraction = Math.max(0, Math.min(1, (mouseX - dragX) / dragW));
         number.set(number.getMin() + (number.getMax() - number.getMin()) * fraction);
     }
 
     /** Greedy line breaking that works for both spaced Latin text and Chinese. */
-    private static List<String> wrap(UiFont font, String text, float maxWidth, int maxLines) {
+    protected static List<String> wrap(UiFont font, String text, float maxWidth, int maxLines) {
         List<String> lines = new ArrayList<>();
         StringBuilder line = new StringBuilder();
         for (int i = 0; i < text.length(); i++) {
@@ -1816,12 +2265,12 @@ public class CodexScreen extends Screen {
 
     // ---- input --------------------------------------------------------------------------------
 
-    private float toDesignX(double guiX) {
+    protected float toDesignX(double guiX) {
         // Same half-pixel term the render-frame mouseX uses, so clicks and hover agree.
         return (float) ((guiX * minecraft.getWindow().getGuiScale() + minecraft.getWindow().getGuiScale() / 2f - originX) / s);
     }
 
-    private float toDesignY(double guiY) {
+    protected float toDesignY(double guiY) {
         return (float) ((guiY * minecraft.getWindow().getGuiScale() + minecraft.getWindow().getGuiScale() / 2f - originY) / s);
     }
 
@@ -1829,8 +2278,8 @@ public class CodexScreen extends Screen {
     public boolean mouseClicked(MouseButtonEvent event, boolean doubleClick) {
         float x = toDesignX(event.x()), y = toDesignY(event.y());
         boolean right = event.button() == InputConstants.MOUSE_BUTTON_RIGHT;
-        if (accountOpen && (x < ACCOUNT_PANEL_X || x >= ACCOUNT_PANEL_X + ACCOUNT_PANEL_W
-                || y < ACCOUNT_PANEL_Y || y >= ACCOUNT_PANEL_Y + ACCOUNT_PANEL_H)) {
+        if (accountOpen && (x < accountPanelX || x >= accountPanelX + ACCOUNT_PANEL_W
+                || y < accountPanelY || y >= accountPanelY + ACCOUNT_PANEL_H)) {
             accountOpen = false;
             accountFieldFocused = false;
         }
@@ -1844,12 +2293,9 @@ public class CodexScreen extends Screen {
                 return true;
             }
         }
-        if (modelOpen && (x < MODEL_POPUP_X || x >= MODEL_POPUP_X + MODEL_POPUP_W
-                || y < MODEL_POPUP_Y || y >= MODEL_POPUP_Y + MODEL_POPUP_H)) {
-            modelOpen = false;
-        }
-        if (usageOpen && (x < USAGE_POPUP_X || x >= USAGE_POPUP_X + USAGE_POPUP_W
-                || y < USAGE_POPUP_Y || y >= USAGE_POPUP_Y + USAGE_POPUP_H)) {
+        if (modelOpen && !insideEffortPopup(x, y)) closeEffortPopup();
+        if (usageOpen && (x < usagePopupX || x >= usagePopupX + USAGE_POPUP_W
+                || y < usagePopupY || y >= usagePopupY + USAGE_POPUP_H)) {
             usageOpen = false;
         }
         for (int i = hits.size() - 1; i >= 0; i--) {
@@ -1866,7 +2312,7 @@ public class CodexScreen extends Screen {
         return true;
     }
 
-    private boolean isMenuHit(Hit hit) {
+    protected boolean isMenuHit(Hit hit) {
         return hit.y() < 46 && hit.x() < 420;
     }
 
@@ -1875,10 +2321,28 @@ public class CodexScreen extends Screen {
      * exactly. Returns the action for the control under the cursor, or null when the click
      * lands on panel background or outside the panel.
      */
-    private Runnable accountPanelAction(float px, float py) {
+    protected Runnable accountPanelAction(float px, float py) {
         if (!accountOpen) return null;
-        float x = ACCOUNT_PANEL_X, y = ACCOUNT_PANEL_Y, w = ACCOUNT_PANEL_W, h = ACCOUNT_PANEL_H;
+        float x = accountPanelX, y = accountPanelY, w = ACCOUNT_PANEL_W, h = ACCOUNT_PANEL_H;
         if (px < x || px >= x + w || py < y || py >= y + h) return null;
+        // Header controls: the API login pill, its gear and the close cross. These sit above the
+        // panel-wide background hit, so they are answered here before anything else.
+        if (py >= y + 26 && py < y + 58) {
+            if (px >= x + w - 250 && px < x + w - 140) return this::openApiSettings;
+            if (px >= x + w - 100 && px < x + w - 68) return this::openApiSettings;
+            if (px >= x + w - 58 && px < x + w - 26) return () -> {
+                accountOpen = false;
+                accountFieldFocused = false;
+            };
+        }
+        if (CodexChat.account() == null && CodexChat.genericConfigured()) {
+            float btnY = y + h - 74, btnH = 46;
+            if (py >= btnY && py < btnY + btnH) {
+                if (px >= x + 28 && px < x + 198) return this::openApiSettings;
+                if (px >= x + 214 && px < x + 364) return this::clearChatAction;
+            }
+            return null;
+        }
         if (CodexChat.account() == null) {
             float fieldX = x + 28, fieldY = y + 126, fieldW = w - 56, fieldH = 176;
             float btnY = fieldY + fieldH + 20, btnH = 46;
@@ -1898,7 +2362,8 @@ public class CodexScreen extends Screen {
         }
         float btnY = y + h - 74, btnH = 46;
         if (py >= btnY && py < btnY + btnH) {
-            if (px >= x + 28 && px < x + 188) return this::clearChatAction;
+            if (px >= x + 28 && px < x + 198) return this::openApiSettings;
+            if (px >= x + 214 && px < x + 364) return this::clearChatAction;
             float logoutX = x + w - 188;
             if (px >= logoutX && px < logoutX + 160) return () -> {
                 CodexChat.logout();
@@ -1910,7 +2375,7 @@ public class CodexScreen extends Screen {
     }
 
     /** Pastes the clipboard into the account field; empty clipboard gets an error toast. */
-    private void pasteClipboard() {
+    protected void pasteClipboard() {
         String clip = minecraft.keyboardHandler.getClipboard();
         if (clip == null || clip.isBlank()) {
             showToastError("剪贴板是空的，先复制账号 JSON 内容");
@@ -1921,7 +2386,7 @@ public class CodexScreen extends Screen {
     }
 
     /** Clears the login field; emptying an empty field says so instead of staying silent. */
-    private void clearAccountInput() {
+    protected void clearAccountInput() {
         if (accountInput.isEmpty()) {
             showToast("输入框本来就是空的");
             return;
@@ -1932,7 +2397,7 @@ public class CodexScreen extends Screen {
     }
 
     /** Clears the current conversation; empty list says so instead of appearing dead. */
-    private void clearChatAction() {
+    protected void clearChatAction() {
         if (CodexChat.messages().isEmpty()) {
             showToast("当前没有对话");
             return;
@@ -1945,6 +2410,7 @@ public class CodexScreen extends Screen {
 
     @Override
     public boolean mouseReleased(MouseButtonEvent event) {
+        if (effortDragging) commitEffort();
         if (dragging != null) {
             dragging = null;
             Client.instance.getConfigManager().saveAllConfig();
@@ -1967,7 +2433,7 @@ public class CodexScreen extends Screen {
     }
 
     /** Appends committed text — plain keyboard chars and IME commits alike — to the composer. */
-    private void typeInto(String text) {
+    protected void typeInto(String text) {
         if (accountFieldFocused) {
             appendAccountInput(text);
             return;
@@ -1982,7 +2448,7 @@ public class CodexScreen extends Screen {
         updateCompletions();
     }
 
-    private void appendAccountInput(String text) {
+    protected void appendAccountInput(String text) {
         if (accountInput.length() + text.length() > 200_000) {
             showToastError("内容过长");
             return;
@@ -1991,7 +2457,7 @@ public class CodexScreen extends Screen {
         typedAt = System.currentTimeMillis();
     }
 
-    private void deleteAccountChar(boolean wholeWord) {
+    protected void deleteAccountChar(boolean wholeWord) {
         if (accountInput.isEmpty()) return;
         if (wholeWord) {
             accountInput = accountInput.stripTrailing();
@@ -2045,7 +2511,7 @@ public class CodexScreen extends Screen {
             case InputConstants.KEY_ESCAPE -> {
                 if (openMenu >= 0) openMenu = -1;
                 else if (modelOpen || usageOpen) {
-                    modelOpen = false;
+                    closeEffortPopup();
                     usageOpen = false;
                 }
                 else if (accountOpen) {
@@ -2111,12 +2577,12 @@ public class CodexScreen extends Screen {
     // ---- helpers ------------------------------------------------------------------------------
 
     /** Character-level clip for headline/filter use; never re-measures, so any length is safe. */
-    private static String displayClip(String text, int max) {
+    protected static String displayClip(String text, int max) {
         return text.length() <= max ? text : text.substring(0, max) + "…";
     }
 
     /** Clips a single-line field from the head so it plus {@code suffix} fits; one linear pass. */
-    private static String fitLine(String text, String suffix, float maxWidth, UiFont font) {
+    protected static String fitLine(String text, String suffix, float maxWidth, UiFont font) {
         float total = font.width(text) + font.width(suffix);
         if (total <= maxWidth || text.length() <= 1) return text;
         float cut = total - maxWidth;
@@ -2130,7 +2596,7 @@ public class CodexScreen extends Screen {
     }
 
     /** Accepts raw JSON content or a file path, imports it and reports via the toast. */
-    private void importAccountText(String text) {
+    protected void importAccountText(String text) {
         if (text == null || text.isBlank()) {
             showToastError("先在输入框粘贴账号 JSON 内容或路径");
             return;
@@ -2146,11 +2612,11 @@ public class CodexScreen extends Screen {
     }
 
     /** Applies the open/close fade to a colour. */
-    private int c(int color) {
+    protected int c(int color) {
         return Render2D.fade(color, alpha);
     }
 
-    private boolean hover(float x, float y, float w, float h) {
+    protected boolean hover(float x, float y, float w, float h) {
         if (openMenu >= 0 && !(y < 46)) {
             // An open menu covers what is under it; only the menu itself and the title bar react.
             float mx = MENU_X[openMenu] - 8;
@@ -2161,13 +2627,13 @@ public class CodexScreen extends Screen {
     }
 
     /** Records a clickable area, cut to the current clip so hidden parts cannot be clicked. */
-    private void hit(float x, float y, float w, float h, Runnable left, Runnable right) {
+    protected void hit(float x, float y, float w, float h, Runnable left, Runnable right) {
         float x0 = Math.max(x, clipX0), y0 = Math.max(y, clipY0);
         float x1 = Math.min(x + w, clipX1), y1 = Math.min(y + h, clipY1);
         if (x1 > x0 && y1 > y0) hits.add(new Hit(x0, y0, x1 - x0, y1 - y0, left, right));
     }
 
-    private void pushClip(GuiGraphicsExtractor g, float x, float y, float w, float h) {
+    protected void pushClip(GuiGraphicsExtractor g, float x, float y, float w, float h) {
         clips.push(new float[]{clipX0, clipY0, clipX1, clipY1});
         clipX0 = Math.max(clipX0, x);
         clipY0 = Math.max(clipY0, y);
@@ -2177,7 +2643,7 @@ public class CodexScreen extends Screen {
                 (int) Math.ceil(Math.max(clipX0, clipX1)), (int) Math.ceil(Math.max(clipY0, clipY1)));
     }
 
-    private void popClip(GuiGraphicsExtractor g) {
+    protected void popClip(GuiGraphicsExtractor g) {
         g.disableScissor();
         float[] previous = clips.pop();
         clipX0 = previous[0];
@@ -2186,7 +2652,7 @@ public class CodexScreen extends Screen {
         clipY1 = previous[3];
     }
 
-    private float anim(String key, float target, float speed) {
+    protected float anim(String key, float target, float speed) {
         return anim(key, null, target, speed);
     }
 
@@ -2194,7 +2660,7 @@ public class CodexScreen extends Screen {
      * A value per key that eases towards {@code target}, keyed by a name plus the owner's identity.
      * It steps at most once per frame, so it can be read from several places while drawing.
      */
-    private float anim(String name, Object owner, float target, float speed) {
+    protected float anim(String name, Object owner, float target, float speed) {
         Object key = owner == null ? name : List.of(name, System.identityHashCode(owner));
         float[] state = animations.computeIfAbsent(key, k -> new float[]{target, -1});
         if (state[1] != frame) {
@@ -2205,12 +2671,12 @@ public class CodexScreen extends Screen {
         return state[0];
     }
 
-    private float approach(float current, float target, float speed) {
+    protected float approach(float current, float target, float speed) {
         float next = current + (target - current) * (1 - (float) Math.exp(-speed * dt));
         return Math.abs(next - target) < 0.001f ? target : next;
     }
 
-    private static float ease(float t) {
+    protected static float ease(float t) {
         float inv = 1 - Math.max(0, Math.min(1, t));
         return 1 - inv * inv * inv;
     }

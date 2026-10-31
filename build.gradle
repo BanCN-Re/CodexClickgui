@@ -11,6 +11,13 @@ base {
 
 loom {
 	accessWidenerPath = file("src/main/resources/carnation.accesswidener")
+
+	// 26.3 renderpearl ships OpenGL and Vulkan backends; the wallpaper renders on Vulkan.
+	runs {
+		client {
+			programArgs "--graphicsBackend", "vulkan"
+		}
+	}
 }
 
 // Client game tests (src/gametest) drive the real client and take screenshots of the GUI:
@@ -36,6 +43,16 @@ dependencies {
 	implementation "org.luaj:luaj-jse:3.0.1"
 	include "org.luaj:luaj-jse:3.0.1"
 
+	// Title-screen video wallpaper: decoded on a background thread by the bundled FFmpeg.
+	implementation 'org.bytedeco:javacpp:1.5.12'
+	include 'org.bytedeco:javacpp:1.5.12'
+	implementation 'org.bytedeco:javacv:1.5.12'
+	include 'org.bytedeco:javacv:1.5.12'
+	implementation 'org.bytedeco:ffmpeg:7.1.1-1.5.12'
+	include 'org.bytedeco:ffmpeg:7.1.1-1.5.12'
+	implementation 'org.bytedeco:ffmpeg:7.1.1-1.5.12:windows-x86_64'
+	include 'org.bytedeco:ffmpeg:7.1.1-1.5.12:windows-x86_64'
+
 	compileOnly 'org.projectlombok:lombok:1.18.42'
 	annotationProcessor 'org.projectlombok:lombok:1.18.42'
 }
@@ -60,4 +77,14 @@ java {
 tasks.withType(JavaCompile).configureEach {
 	it.options.release = 25
 	it.options.encoding = 'UTF-8'
+}
+
+// configureTests (above) creates the clientGameTest run. Game tests intentionally run on
+// OpenGL: the CI window is resized and screens swap rapidly, which repeatedly trips VK_ERROR_DEVICE_LOST
+// on driver overlays; the Vulkan wallpaper path is still exercised by runClient.
+afterEvaluate {
+	def gametestRun = loom.runs.findByName('clientGameTest')
+	if (gametestRun != null) {
+		gametestRun.programArgs "--graphicsBackend", "opengl"
+	}
 }

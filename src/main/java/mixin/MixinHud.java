@@ -1,4 +1,4 @@
-package lol.mixin;
+package mixin;
 
 import net.minecraft.client.DeltaTracker;
 import net.minecraft.client.gui.GuiGraphicsExtractor;

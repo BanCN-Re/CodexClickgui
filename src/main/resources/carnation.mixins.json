@@ -1,7 +1,7 @@
 {
   "required": true,
   "minVersion": "0.8",
-  "package": "lol.mixin",
+  "package": "mixin",
   "compatibilityLevel": "JAVA_25",
   "client": [
     "MixinClientPacketListener",
@@ -9,6 +9,7 @@
     "MixinKeyboardHandler",
     "MixinLocalPlayer",
     "MixinTrueTypeGlyphProvider",
+    "MixinTitleScreen",
     "MixinTrueTypeGlyphProviderDefinition"
   ],
   "injectors": {

@@ -18,3 +18,11 @@ src/main/resources/assets/carnation/scripts/
 # 系统杂物
 Thumbs.db
 .DS_Store
+
+# 本地素材与临时产物（壁纸视频、AE 工程、截图核对、临时脚本），一律不上传
+3511978938/
+LookFor/
+.wpverify/
+build_log.txt
+extract_pkg.py
+

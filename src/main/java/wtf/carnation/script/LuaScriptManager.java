@@ -113,6 +113,7 @@ public final class LuaScriptManager implements InstanceAccess {
             Globals globals = JsePlatform.standardGlobals();
             LuaC.install(globals);
             globals.set("api", CoerceJavaToLua.coerce(new LuaApi()));
+            globals.set("ui", CoerceJavaToLua.coerce(new LuaUiApi()));
             LuaValue result = globals.load(new StringReader(code), "probe_lua").call();
             return "类型: " + result.typename() + "\n值: " + result.tojstring();
         });
@@ -183,6 +184,7 @@ public final class LuaScriptManager implements InstanceAccess {
         LuaC.install(globals);
         globals.set("module", CoerceJavaToLua.coerce(builder));
         globals.set("api", CoerceJavaToLua.coerce(new LuaApi()));
+        globals.set("ui", CoerceJavaToLua.coerce(new LuaUiApi()));
         globals.load(new StringReader(source), normalized.getFileName().toString()).call();
         if (Client.instance.getModuleManager().getModuleByName(builder.name) != null) {
             throw new IOException("模块名已存在: " + builder.name);
@@ -333,14 +335,15 @@ public final class LuaScriptManager implements InstanceAccess {
                 脚本目录是 Carnation/scripts。脚本内提供 module 与 api 两个 Java 对象，方法使用冒号调用；也可使用 luajava 调用其他 Java 类。
                 module:name(string)、module:category("Combat|Movement|Player|World|Render|Misc")、module:description(string)。
                 module:bool(name, default)、module:number(name, default, min, max, increment)、module:mode(name, {"A", "B"}, default) 创建设置，返回对象可用 :get()、:getFloat()、:getInt()。
-                module:onEnable(function() ... end)、module:onDisable(...)、module:onUpdate(...)、module:onRender2D(function(graphics, partialTicks) ... end)、module:onKey(function(key, state) ... end) 注册回调。
+                module:onEnable(function() ... end)、module:onDisable(...)、module:onUpdate(...)、module:onRender2D(function(graphics, partialTicks) ... end)、module:onKey(function(key, state) ... end)、module:onChat(function(message) return false end) 注册回调；onChat 返回 false 会取消发送这条聊天。
                 api:isInGame()、api:minecraft()、api:player()、api:world()、api:chat(text)、api:log(text)。
-                api:nearestLiving(range, playersOnly) 返回最近 LivingEntity 或 nil；api:canAttack() 检查攻击冷却；api:lookAt(entity)；api:attack(entity)。
-                api:lookAtPos(x, y, z) 把视角转向世界坐标。
-                api:hotbarSlot() 返回当前快捷栏槽位 0-8；api:setHotbarSlot(i) 切换；api:hotbarStack(i) 返回该槽位 ItemStack；api:findHotbarBlock() 返回快捷栏中第一个方块物品的槽位（没有则 -1）。
-                api:setSneaking(bool)、api:isSneaking() 控制潜行状态。
-                api:placeBlockAdjacent(x, y, z) 向坐标处的可替换方块（空气、水、草）放置当前选中方块，自动寻找相邻坚硬面并发送合法放置封包，返回 placed/rejected:…/no_block/no_face/not_replaceable/no_player。
-                api:boostHorizontal(multiplier, maxSpeed) 按倍率提高当前水平速度并保留垂直速度，返回加速后的速度。直接操作 Vec3 时使用 .x/.y/.z 字段，26.3 没有 getX()/getY()/getZ() 方法。
+                api:position()、api:eyePosition()、api:velocity()、api:setVelocity(x,y,z)、api:addVelocity(x,y,z)、api:setPosition(x,y,z)、api:yaw()、api:pitch()、api:setRotation(yaw,pitch)。
+                api:health()、api:maxHealth()、api:foodLevel()、api:entities(range, "all|players|mobs")、api:nearestLiving(range, playersOnly)、api:canAttack()、api:lookAt(entity)、api:lookAtPos(x,y,z)、api:attack(entity)。
+                api:blockState(x,y,z)、api:blockName(x,y,z)、api:isAir(x,y,z)、api:isReplaceable(x,y,z)、api:crosshairBlock()、api:crosshairEntity()、api:attackBlock(x,y,z,face)、api:stopBreaking()、api:placeBlockAdjacent(x,y,z)。
+                api:useItemMain()、api:useItemOffhand()、api:interactEntity(entity, secondary)、api:hotbarSlot()、api:setHotbarSlot(i)、api:hotbarStack(i)、api:findHotbarBlock()、api:findHotbarItem(name)。
+                api:setMovementInput(forward,backward,left,right,jump,sneak,sprint)、api:setSneaking(bool)、api:isSneaking()、api:sendCommand(command)、api:toggleModule(name)、api:moduleEnabled(name)、api:windowWidth()、api:windowHeight()、api:fps()。
+                ui 是自绘 UI API：ui:rect/roundedRect/roundedOutline/shadow/circle/circleOutline/line；ui:text/textMiddle/textCentered/textRight/title/small/semibold/icon；ui:textWidth/smallWidth/semiboldWidth/ellipsize。onRender2D(graphics, partialTicks) 中把 graphics 传给这些方法即可，形状由 renderpearl 三角形管线绘制并带真实像素抗锯齿，文字使用烘焙 TrueType 字体。
+                需要未封装的 26.3 原版能力时，继续使用 luajava.bindClass / api:minecraft() / api:player() / api:world() 直接访问 Java 对象；这是全能力逃生口，不受上面封装限制。
                 示例：
                 module:name("KillAura")
                 module:category("Combat")
@@ -425,6 +428,10 @@ public final class LuaScriptManager implements InstanceAccess {
 
         public void onKey(LuaValue callback) {
             callbacks.put("onKey", callback.checkfunction());
+        }
+
+        public void onChat(LuaValue callback) {
+            callbacks.put("onChat", callback.checkfunction());
         }
     }
 }

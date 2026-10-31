@@ -6,6 +6,7 @@ import wtf.carnation.Client;
 import wtf.carnation.event.EventTarget;
 import wtf.carnation.event.impl.UpdateEvent;
 import wtf.carnation.event.impl.input.KeyEvent;
+import wtf.carnation.event.impl.network.ChatEvent;
 import wtf.carnation.event.impl.render.Render2DEvent;
 import wtf.carnation.module.Category;
 import wtf.carnation.module.Module;
@@ -58,17 +59,30 @@ public final class LuaModule extends Module {
         invoke("onKey", LuaValue.valueOf(event.key()), LuaValue.valueOf(event.state()));
     }
 
+    @EventTarget
+    public void onChat(ChatEvent event) {
+        LuaValue result = invokeResult("onChat", LuaValue.valueOf(event.getMessage()));
+        if (result != null && result.isboolean() && !result.toboolean()) {
+            event.setCancelled(true);
+        }
+    }
+
     private void invoke(String callback, LuaValue... arguments) {
-        if (failed) return;
+        invokeResult(callback, arguments);
+    }
+
+    private LuaValue invokeResult(String callback, LuaValue... arguments) {
+        if (failed) return null;
         LuaValue function = callbacks.get(callback);
-        if (function == null || function.isnil()) return;
+        if (function == null || function.isnil()) return null;
         try {
-            function.invoke(arguments);
+            return function.invoke(arguments).arg1();
         } catch (RuntimeException e) {
             failed = true;
             Client.logger.error("Lua module {} in {} failed in {}", getName(), file, callback, e);
             ChatUtil.addChatMessage("Lua " + getName() + " 已关闭: " + e.getMessage());
             setState(false);
+            return null;
         }
     }
 }

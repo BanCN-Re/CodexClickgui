@@ -8,7 +8,7 @@
 	"accessWidener": "carnation.accesswidener",
 	"entrypoints": {
 		"client": [
-			"zzz.loader.CarnationClient"
+			"loader.CarnationClient"
 		]
 	},
 	"mixins": [

@@ -1,0 +1,48 @@
+{
+  "providers": [
+    {
+      "type": "ttf",
+      "file": "carnation:figtree-regular.ttf",
+      "size": 12,
+      "oversample": 1.5,
+      "shift": [
+        0,
+        0
+      ],
+      "skip": ""
+    },
+    {
+      "type": "ttf",
+      "file": "carnation:system/segoeui.ttf",
+      "size": 12,
+      "oversample": 1.5,
+      "shift": [
+        0,
+        0
+      ],
+      "skip": ""
+    },
+    {
+      "type": "ttf",
+      "file": "carnation:system/msyh.ttc",
+      "size": 12,
+      "oversample": 1.5,
+      "shift": [
+        0,
+        0
+      ],
+      "skip": ""
+    },
+    {
+      "type": "ttf",
+      "file": "carnation:misans-gb2312.ttf",
+      "size": 12,
+      "oversample": 1.5,
+      "shift": [
+        0,
+        0
+      ],
+      "skip": ""
+    }
+  ]
+}

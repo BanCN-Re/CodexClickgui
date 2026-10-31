@@ -41,6 +41,24 @@ public final class Icons {
     public static final char INFO = '\uE0FE';
     public static final char SLIDERS = '\uE299';
 
+    public static final char CIRCLE_PLUS = '\uE086';
+    public static final char CALENDAR_CLOCK = '\uE303';
+    public static final char BLOCKS = '\uE4FE';
+    public static final char LIST_FILTER = '\uE464';
+    public static final char FOLDER_OPEN = '\uE246';
+    public static final char SHIELD_ALERT = '\uE1FD';
+    public static final char ALARM_CLOCK_CHECK = '\uE1EB';
+    public static final char BUG = '\uE20B';
+    public static final char PRESENTATION = '\uE4B2';
+    public static final char MOON = '\uE121';
+    public static final char CIRCLE_HELP = '\uE082';
+    public static final char SQUARE_TERMINAL = '\uE209';
+    public static final char TABLET = '\uE181';
+    public static final char ZAP = '\uE1B3';
+    public static final char CHEVRON_LEFT = '\uE072';
+    public static final char CHECK = '\uE070';
+    public static final char MESSAGE_CIRCLE_PLUS = '\uE56B';
+
     private Icons() {
     }
 }

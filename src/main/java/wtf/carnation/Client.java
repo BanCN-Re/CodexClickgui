@@ -52,5 +52,6 @@ public class Client implements InstanceAccess {
         shuttingDown = true;
         configManager.saveAllConfig();
         luaScriptManager.unloadAll();
+        wtf.carnation.wallpaper.VideoWallpaper.shutdown();
     }
 }

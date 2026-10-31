@@ -32,6 +32,11 @@ public final class Render2D {
     public static void roundedRect(GuiGraphicsExtractor g, float x, float y, float w, float h, float radius, int color) {
         if (w <= 0 || h <= 0 || alpha(color) == 0) return;
         float f = feather(g);
+        float[] box = snapBox(g, x, y, w, h);
+        x = box[0];
+        y = box[1];
+        w = box[2];
+        h = box[3];
         Mesh mesh = MESH.reset();
         float r = clampRadius(radius, w, h);
         int n = segments(r, g);
@@ -46,6 +51,11 @@ public final class Render2D {
                                       float thickness, int color) {
         if (w <= 0 || h <= 0 || alpha(color) == 0) return;
         float f = feather(g);
+        float[] box = snapBox(g, x, y, w, h);
+        x = box[0];
+        y = box[1];
+        w = box[2];
+        h = box[3];
         Mesh mesh = MESH.reset();
         float r = clampRadius(radius, w, h);
         int n = segments(r, g);
@@ -119,6 +129,80 @@ public final class Render2D {
 
     public static void circleOutline(GuiGraphicsExtractor g, float cx, float cy, float radius, float thickness, int color) {
         roundedOutline(g, cx - radius, cy - radius, radius * 2, radius * 2, radius, thickness, color);
+    }
+
+    /** A colour along the x axis, for {@link #gradientBar}. */
+    @FunctionalInterface
+    public interface Gradient {
+        int at(float x);
+    }
+
+    /**
+     * A horizontal bar filled by {@code gradient}, with separate left and right corner radii (a
+     * fill that ends under a knob keeps a square right end). Built from thin columns so any number
+     * of colour stops survives; the top and bottom edges get the usual one-pixel feather.
+     */
+    public static void gradientBar(GuiGraphicsExtractor g, float x, float y, float w, float h,
+                                   float leftRadius, float rightRadius, Gradient gradient) {
+        if (w <= 0 || h <= 0) return;
+        float f = feather(g);
+        float rl = clampRadius(leftRadius, w, h), rr = clampRadius(rightRadius, w, h);
+        Mesh mesh = MESH.reset();
+        float step = Math.max(f, 3);
+        float previousX = Float.NaN, previousTop = 0, previousBottom = 0;
+        int previousColor = 0;
+        float px = x;
+        while (true) {
+            float inset = 0;
+            if (rl > 0 && px < x + rl) {
+                float d = x + rl - px;
+                inset = rl - (float) Math.sqrt(Math.max(0, rl * rl - d * d));
+            } else if (rr > 0 && px > x + w - rr) {
+                float d = px - (x + w - rr);
+                inset = rr - (float) Math.sqrt(Math.max(0, rr * rr - d * d));
+            }
+            float top = y + inset, bottom = y + h - inset;
+            int color = gradient.at(px);
+            if (!Float.isNaN(previousX)) {
+                int clear = withAlpha(color, 0), previousClear = withAlpha(previousColor, 0);
+                quadInto(mesh, previousX, previousTop + f * 0.5f, px, top + f * 0.5f,
+                        px, bottom - f * 0.5f, previousX, previousBottom - f * 0.5f,
+                        previousColor, color, color, previousColor);
+                quadInto(mesh, previousX, previousTop - f * 0.5f, px, top - f * 0.5f,
+                        px, top + f * 0.5f, previousX, previousTop + f * 0.5f,
+                        previousClear, clear, color, previousColor);
+                quadInto(mesh, previousX, previousBottom - f * 0.5f, px, bottom - f * 0.5f,
+                        px, bottom + f * 0.5f, previousX, previousBottom + f * 0.5f,
+                        previousColor, color, clear, previousClear);
+            }
+            previousX = px;
+            previousTop = top;
+            previousBottom = bottom;
+            previousColor = color;
+            if (px >= x + w) break;
+            // Fine steps through the rounded ends, coarser through the straight middle.
+            boolean inCurve = px < x + rl || px >= x + w - rr - step;
+            px = Math.min(x + w, px + (inCurve ? Math.max(f, 1) : step));
+        }
+        submit(g, mesh);
+    }
+
+    /** A filled quad with one colour per corner (clockwise), e.g. for gradient bands. */
+    public static void quad(GuiGraphicsExtractor g, float x0, float y0, float x1, float y1, float x2, float y2,
+                            float x3, float y3, int c0, int c1, int c2, int c3) {
+        Mesh mesh = MESH.reset();
+        quadInto(mesh, x0, y0, x1, y1, x2, y2, x3, y3, c0, c1, c2, c3);
+        submit(g, mesh);
+    }
+
+    private static void quadInto(Mesh mesh, float x0, float y0, float x1, float y1, float x2, float y2,
+                                 float x3, float y3, int c0, int c1, int c2, int c3) {
+        mesh.vertex(x0, y0, c0);
+        mesh.vertex(x1, y1, c1);
+        mesh.vertex(x2, y2, c2);
+        mesh.vertex(x0, y0, c0);
+        mesh.vertex(x2, y2, c2);
+        mesh.vertex(x3, y3, c3);
     }
 
     /** A line of the given width with soft ends, e.g. for icons and underlines. */
@@ -203,13 +287,28 @@ public final class Render2D {
         return 1.0f / pixels;
     }
 
+    /**
+     * Puts a rectangle on the physical pixel grid. A box that starts half a pixel in makes its own
+     * one-pixel feather ramp straddle two pixels, which is what reads as a ragged edge.
+     */
+    private static float[] snapBox(GuiGraphicsExtractor g, float x, float y, float w, float h) {
+        float grid = 1.0f / feather(g);
+        float sx = Math.round(x * grid) / grid;
+        float sy = Math.round(y * grid) / grid;
+        float right = Math.round((x + w) * grid) / grid;
+        float bottom = Math.round((y + h) * grid) / grid;
+        return new float[]{sx, sy, Math.max(grid, right - sx), Math.max(grid, bottom - sy)};
+    }
+
     private static float clampRadius(float radius, float w, float h) {
         return Math.max(0, Math.min(radius, Math.min(w, h) * 0.5f));
     }
 
     private static int segments(float radius, GuiGraphicsExtractor g) {
+        // One quad per ~2 physical pixels of arc: below that the straight chords between corner
+        // points are long enough to see as facets on a rounded card.
         float pixels = radius / feather(g);
-        return Math.max(2, Math.min(32, Math.round((float) Math.sqrt(pixels) * 2.2f)));
+        return Math.max(4, Math.min(64, Math.round(pixels * 0.9f)));
     }
 
     /**

@@ -23,7 +23,14 @@ public enum UiFont {
     HERO("hero", 34),
     ICON_S("icon_s", 18),
     ICON_M("icon_m", 20),
-    ICON_L("icon_l", 22);
+    ICON_L("icon_l", 22),
+    // The ZCode window, drawn in its own logical pixels.
+    Z_SMALL("z_small", 12),
+    Z_MEDIUM("z_medium", 15),
+    Z_BOLD("z_bold", 15),
+    Z_HERO("z_hero", 30),
+    Z_ICON("z_icon", 14),
+    Z_ICON_XS("z_icon_xs", 11);
 
     private static int scaleIndex = 1;
 

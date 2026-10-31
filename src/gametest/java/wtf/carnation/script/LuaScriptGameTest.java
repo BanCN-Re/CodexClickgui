@@ -7,6 +7,7 @@ import net.fabricmc.fabric.api.client.gametest.v1.context.TestSingleplayerContex
 import net.minecraft.client.gui.screens.TitleScreen;
 import wtf.carnation.Client;
 import wtf.carnation.codex.CodexTools;
+import wtf.carnation.event.impl.network.ChatEvent;
 import wtf.carnation.module.Module;
 
 import java.nio.file.Files;
@@ -28,6 +29,13 @@ public final class LuaScriptGameTest implements FabricClientGameTest {
                     local System = luajava.bindClass("java.lang.System")
                     module:onUpdate(function()
                         System:setProperty("carnation.lua.smoke", mode:get() .. ":" .. string.format("%.1f", range:getFloat()) .. ":" .. tostring(flag:get()))
+                    end)
+                    module:onRender2D(function(graphics, partialTicks)
+                        System:setProperty("carnation.lua.ui", tostring(graphics ~= nil) .. ":" .. tostring(ui:textWidth("Carnation") > 0) .. ":" .. tostring(ui:ellipsize("Carnation client API", 40) ~= nil))
+                    end)
+                    module:onChat(function(message)
+                        System:setProperty("carnation.lua.chat", message)
+                        return false
                     end)
                     """;
             JsonObject run = new JsonObject();
@@ -53,6 +61,17 @@ public final class LuaScriptGameTest implements FabricClientGameTest {
                 check(verificationResult.contains("验证通过"), "verify_lua failed: " + verificationResult);
                 String callback = System.getProperty("carnation.lua.smoke");
                 check("A:2.0:true".equals(callback), "onUpdate did not run with Lua settings: " + callback);
+                String uiCallback = System.getProperty("carnation.lua.ui");
+                check("true:true:true".equals(uiCallback), "Lua UI callback failed: " + uiCallback);
+                context.runOnClient(mc -> {
+                    module.setState(true);
+                    ChatEvent chat = new ChatEvent(".lua-event");
+                    Client.instance.getEventManager().call(chat);
+                    check(chat.isCancelled(), "onChat(false) did not cancel the outgoing message");
+                    module.setState(false);
+                });
+                check(".lua-event".equals(System.getProperty("carnation.lua.chat")),
+                        "onChat did not receive the outgoing message");
                 check(!module.isEnabled(), "verify_lua did not restore the original module state");
                 check(context.computeOnClient(mc -> CodexTools.execute("list_lua", new JsonObject())).contains("LuaSmoke"),
                         "list_lua missed the module");
@@ -105,11 +124,22 @@ public final class LuaScriptGameTest implements FabricClientGameTest {
                     check(api.hotbarSlot() == mc.player.getInventory().getSelectedSlot(),
                             "hotbarSlot did not report the selected slot");
                     check(api.findHotbarBlock() >= -1, "findHotbarBlock returned an invalid slot");
+                    api.lookAtPos(mc.player.getX(), mc.player.getY() + 1.0, mc.player.getZ());
+                    check(api.position() != null && api.eyePosition() != null && api.velocity() != null,
+                            "player position APIs returned null");
+                    check(api.health() >= 0 && api.maxHealth() > 0 && api.foodLevel() >= 0,
+                            "player state APIs returned invalid values");
+                    check(api.entities(8, "all") != null && api.entities(8, "players") != null,
+                            "entity list APIs returned null");
+                    check(api.blockName(mc.player.getX(), mc.player.getY() - 1, mc.player.getZ()) != null,
+                            "blockName returned null");
+                    check(api.windowWidth() > 0 && api.windowHeight() > 0 && api.fps() >= 0,
+                            "window/fps APIs returned invalid values");
+                    api.setMovementInput(false, false, false, false, false, false, false);
                     api.setSneaking(true);
                     check(api.isSneaking(), "setSneaking(true) did not apply");
                     api.setSneaking(false);
                     check(!api.isSneaking(), "setSneaking(false) did not apply");
-                    api.lookAtPos(mc.player.getX(), mc.player.getY() + 1.0, mc.player.getZ());
                 });
             }
             System.out.println("[LuaScriptGameTest] run_lua, settings, onUpdate, unload, KillAura and block APIs passed");
@@ -117,6 +147,8 @@ public final class LuaScriptGameTest implements FabricClientGameTest {
             throw new RuntimeException("Lua script integration test failed", e);
         } finally {
             System.clearProperty("carnation.lua.smoke");
+            System.clearProperty("carnation.lua.ui");
+            System.clearProperty("carnation.lua.chat");
             context.runOnClient(mc -> manager.unload("LuaSmoke"));
             try {
                 Files.deleteIfExists(manager.directory().resolve("LuaSmoke.lua"));

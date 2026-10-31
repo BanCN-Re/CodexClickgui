@@ -4,6 +4,10 @@ import com.google.gson.JsonArray;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
 import wtf.carnation.Client;
+import wtf.carnation.codex.provider.ApiMessage;
+import wtf.carnation.codex.provider.ApiProviderClient;
+import wtf.carnation.codex.provider.ApiProviderConfig;
+import wtf.carnation.codex.provider.ApiToolCall;
 
 import java.io.IOException;
 import java.io.InputStream;
@@ -100,9 +104,12 @@ public final class CodexChat {
     private static final int[] LOCAL_PROXY_PORTS = {7897, 7890, 10809, 2080, 8888, 1080};
 
     private static volatile CodexAccount account;
+    private static volatile ApiProviderConfig provider = new ApiProviderConfig();
+    private static volatile ApiProviderConfig turnProvider;
     private static volatile State state = State.NO_ACCOUNT;
     private static volatile Usage usage;
     private static volatile CompletableFuture<HttpResponse<Stream<String>>> turn;
+    private static volatile CompletableFuture<HttpResponse<String>> genericTurn;
     private static final AtomicBoolean cancelled = new AtomicBoolean();
     private static volatile HttpClient http;
     private static volatile long turnStartAt;
@@ -176,6 +183,7 @@ public final class CodexChat {
     public static synchronized void ensureLoaded() {
         if (loaded) return;
         loaded = true;
+        provider = ApiProviderConfig.load();
         Path file = store();
         if (file != null && Files.isRegularFile(file)) {
             try {
@@ -189,7 +197,17 @@ public final class CodexChat {
                 Client.logger.warn("Could not read the imported Codex account", e);
             }
         }
+        if (genericConfigured()) state = State.IDLE;
         restoreLatestSession();
+    }
+
+    public static synchronized void reloadProvider() {
+        provider = ApiProviderConfig.load();
+        if (genericConfigured()) {
+            state = State.IDLE;
+        } else if (account == null && state != State.THINKING) {
+            state = State.NO_ACCOUNT;
+        }
     }
 
     public static State state() {
@@ -200,14 +218,40 @@ public final class CodexChat {
         return account;
     }
 
+    public static boolean genericConfigured() {
+        ApiProviderConfig config = provider;
+        return config != null && config.usable();
+    }
+
+    public static String providerName() {
+        return genericConfigured() ? provider.protocol().displayName() : "Codex";
+    }
+
+    public static String providerDetail() {
+        if (!genericConfigured()) return account == null ? "未配置" : "ChatGPT Codex";
+        return provider.protocol().displayName() + " · " + provider.baseUrl();
+    }
+
+    /** Models currently exposed by the active provider. */
+    public static List<Model> models() {
+        if (genericConfigured()) {
+            List<Model> result = new ArrayList<>();
+            for (var model : provider.models()) result.add(new Model(model.id(), model.displayName()));
+            return result;
+        }
+        return List.of(MODELS);
+    }
+
     /** The model slug chats use: the user's pick, else the default. */
     public static String model() {
+        if (genericConfigured()) return provider.selectedModel();
         CodexAccount acc = account;
         return acc != null && acc.model() != null ? acc.model() : DEFAULT_MODEL;
     }
 
     /** The display name of the current model, as the Codex app writes it. */
     public static String modelDisplay() {
+        if (genericConfigured()) return provider.modelDisplay();
         String slug = model();
         for (Model candidate : MODELS) {
             if (candidate.slug().equals(slug)) return candidate.name();
@@ -216,6 +260,15 @@ public final class CodexChat {
     }
 
     public static void setModel(String slug) {
+        if (genericConfigured()) {
+            provider.selectedModel(slug);
+            try {
+                provider.save();
+            } catch (IOException e) {
+                Client.logger.warn("Could not save the API provider model", e);
+            }
+            return;
+        }
         CodexAccount acc = account;
         if (acc == null) return;
         account = acc.withModel(slug, null);
@@ -223,11 +276,21 @@ public final class CodexChat {
     }
 
     public static String effort() {
+        if (genericConfigured()) return provider.effort();
         CodexAccount acc = account;
         return acc != null && acc.effort() != null ? acc.effort() : DEFAULT_EFFORT;
     }
 
     public static void setEffort(String effort) {
+        if (genericConfigured()) {
+            provider.effort(effort);
+            try {
+                provider.save();
+            } catch (IOException e) {
+                Client.logger.warn("Could not save the API provider effort", e);
+            }
+            return;
+        }
         CodexAccount acc = account;
         if (acc == null) return;
         account = acc.withModel(null, effort);
@@ -244,11 +307,11 @@ public final class CodexChat {
     /** Chinese label for an effort level, matching the app's slider wording. */
     public static String effortLabel(String effort) {
         return switch (effort) {
-            case "low" -> "低";
-            case "medium" -> "中";
+            case "low" -> "轻度";
+            case "medium" -> "中等";
             case "high" -> "高";
             case "xhigh" -> "极高";
-            default -> "最大";
+            default -> "Ultra";
         };
     }
 
@@ -281,7 +344,7 @@ public final class CodexChat {
      */
     public static void probeUsage(Runnable onDone) {
         CodexAccount acc = account;
-        if (acc == null || state == State.THINKING) {
+        if (acc == null || genericConfigured() || state == State.THINKING) {
             if (onDone != null) onDone.run();
             return;
         }
@@ -383,6 +446,7 @@ public final class CodexChat {
         CodexAccount parsed = CodexAccount.parse(Files.readString(file, StandardCharsets.UTF_8));
         if (parsed == null) throw new IOException("不是有效的账号 JSON（支持 auth.json 与 sub2api 导出格式）");
         account = parsed;
+        disableGenericProvider();
         state = State.IDLE;
         save();
         return parsed.email();
@@ -398,14 +462,26 @@ public final class CodexChat {
         CodexAccount parsed = CodexAccount.parse(trimmed);
         if (parsed == null) throw new IOException("不是有效的账号 JSON（支持 auth.json 与 sub2api 导出格式）");
         account = parsed;
+        disableGenericProvider();
         state = State.IDLE;
         save();
         return parsed.email();
     }
 
+    private static void disableGenericProvider() {
+        ApiProviderConfig config = provider;
+        if (config == null || !config.enabled()) return;
+        config.enabled(false);
+        try {
+            config.save();
+        } catch (IOException e) {
+            Client.logger.warn("Could not disable the generic API provider", e);
+        }
+    }
+
     public static void logout() {
         account = null;
-        state = State.NO_ACCOUNT;
+        state = genericConfigured() ? State.IDLE : State.NO_ACCOUNT;
         try {
             Path file = store();
             if (file != null) Files.deleteIfExists(file);
@@ -414,9 +490,10 @@ public final class CodexChat {
         }
     }
 
-    /** Queues a user message and starts the agent loop; the caller guards state and account. */
+    /** Queues a user message and starts the agent loop. */
     public static void send(String text) {
-        if (state == State.THINKING || account == null) return;
+        boolean generic = genericConfigured();
+        if (state == State.THINKING || (!generic && account == null)) return;
         state = State.THINKING;
         cancelled.set(false);
         turnStartAt = System.currentTimeMillis();
@@ -424,6 +501,7 @@ public final class CodexChat {
         streamStarted = false;
         thinkingStartAt = 0;
         agentSteps = 0;
+        turnProvider = generic ? provider.copy() : null;
         synchronized (CodexChat.class) {
             // The turn owns this conversation from here on; switching the view swaps
             // MESSAGES/TRANSCRIPT/sessionFile away but never touches these references.
@@ -440,7 +518,8 @@ public final class CodexChat {
             turnTranscript.add(messageItem("user", text));
             appendEvent(messageEvent(user));
         }
-        CompletableFuture.runAsync(() -> runTurn(0), IO);
+        if (generic) CompletableFuture.runAsync(CodexChat::runGenericTurn, IO);
+        else CompletableFuture.runAsync(() -> runTurn(0), IO);
     }
 
     /** Stops the running turn; a partial answer stays on screen. */
@@ -448,6 +527,8 @@ public final class CodexChat {
         cancelled.set(true);
         CompletableFuture<HttpResponse<Stream<String>>> current = turn;
         if (current != null) current.cancel(true);
+        CompletableFuture<HttpResponse<String>> generic = genericTurn;
+        if (generic != null) generic.cancel(true);
         CodexTools.cancel();
         finishTurn();
     }
@@ -729,6 +810,89 @@ public final class CodexChat {
         } catch (IOException e) {
             Client.logger.warn("Could not replay the Codex session", e);
         }
+    }
+
+    private static void runGenericTurn() {
+        ApiProviderConfig config = turnProvider;
+        if (config == null || !config.usable()) {
+            fail("API 配置不可用，请重新打开 API 登录并保存");
+            return;
+        }
+        try {
+            List<ApiMessage> history = genericHistory();
+            for (agentSteps = 0; agentSteps < MAX_AGENT_STEPS; agentSteps++) {
+                if (cancelled.get()) {
+                    finishTurn();
+                    return;
+                }
+                ApiProviderClient.Completion completion = ApiProviderClient.complete(config,
+                        instructionsWithAgent(), history, CodexTools.definitions());
+                if (cancelled.get()) {
+                    finishTurn();
+                    return;
+                }
+                if (!completion.text().isBlank()) {
+                    Msg assistant = new Msg(Msg.Role.ASSISTANT, completion.text(), false, null);
+                    synchronized (CodexChat.class) {
+                        turnMessages.add(assistant);
+                        appendEvent(messageEvent(assistant));
+                        turnSaved = true;
+                    }
+                }
+                if (completion.calls().isEmpty()) {
+                    finishTurn();
+                    return;
+                }
+                history.add(ApiMessage.assistant(completion.text(), completion.calls()));
+                for (ApiToolCall call : completion.calls()) {
+                    if (cancelled.get()) {
+                        finishTurn();
+                        return;
+                    }
+                    String result;
+                    try {
+                        result = executeTool(call.name(), JsonParser.parseString(call.arguments()).getAsJsonObject());
+                    } catch (Exception e) {
+                        result = "工具执行出错: " + e.getMessage();
+                    }
+                    if (cancelled.get()) {
+                        finishTurn();
+                        return;
+                    }
+                    result = truncate(result, MAX_TOOL_RESULT_CHARS);
+                    synchronized (CodexChat.class) {
+                        addCallMessage(call.name(), call.arguments());
+                        updateCallMessage(call.name(), call.arguments(), result);
+                        appendEvent(callEvent(call.name(), call.arguments(), call.id(), result));
+                    }
+                    history.add(ApiMessage.tool(call.id(), call.name(), result));
+                }
+            }
+            markError("已连续执行 " + MAX_AGENT_STEPS + " 轮工具，暂停等待指示");
+            finishTurn();
+        } catch (Exception e) {
+            fail("API 请求失败: " + e.getMessage());
+        }
+    }
+
+    private static List<ApiMessage> genericHistory() {
+        List<ApiMessage> history = new ArrayList<>();
+        synchronized (CodexChat.class) {
+            for (Msg message : turnMessages) {
+                if (message.role() == Msg.Role.USER) history.add(ApiMessage.user(message.text()));
+                else if (message.role() == Msg.Role.ASSISTANT && !message.error()
+                        && !message.text().isBlank()) {
+                    history.add(ApiMessage.assistant(message.text(), List.of()));
+                }
+            }
+        }
+        return history;
+    }
+
+    private static String instructionsWithAgent() {
+        String base = instructions();
+        String agent = CodexTools.instructions();
+        return base == null || base.isBlank() ? agent : base + "\n\n" + agent;
     }
 
     private static void runTurn(int attempt) {
@@ -1089,6 +1253,8 @@ public final class CodexChat {
         }
         state = State.IDLE;
         turn = null;
+        genericTurn = null;
+        turnProvider = null;
         synchronized (CodexChat.class) {
             // The user switched away: tell them their background task landed somewhere else.
             if (turnMessages != null && MESSAGES != turnMessages) {

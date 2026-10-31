@@ -53,6 +53,15 @@ public final class CodexTheme {
     private CodexTheme() {
     }
 
+    /**
+     * Drops a physical-pixel offset onto the GUI pixel grid. A window placed between two GUI pixels
+     * makes every scaled rect and glyph sample across texel edges, which is what reads as blur.
+     */
+    public static int snap(int value, int guiScale) {
+        if (guiScale <= 1) return value;
+        return value - Math.floorMod(value, guiScale);
+    }
+
     public static char icon(Category category) {
         if (category == null) return Icons.HOUSE;
         return switch (category) {

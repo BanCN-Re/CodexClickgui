@@ -1,0 +1,48 @@
+{
+  "providers": [
+    {
+      "type": "ttf",
+      "file": "carnation:figtree-bold.ttf",
+      "size": 15,
+      "oversample": 0.75,
+      "shift": [
+        0,
+        0
+      ],
+      "skip": ""
+    },
+    {
+      "type": "ttf",
+      "file": "carnation:system/segoeuib.ttf",
+      "size": 15,
+      "oversample": 0.75,
+      "shift": [
+        0,
+        0
+      ],
+      "skip": ""
+    },
+    {
+      "type": "ttf",
+      "file": "carnation:system/msyhbd.ttc",
+      "size": 15,
+      "oversample": 0.75,
+      "shift": [
+        0,
+        0
+      ],
+      "skip": ""
+    },
+    {
+      "type": "ttf",
+      "file": "carnation:misans-gb2312.ttf",
+      "size": 15,
+      "oversample": 0.75,
+      "shift": [
+        0,
+        0
+      ],
+      "skip": ""
+    }
+  ]
+}

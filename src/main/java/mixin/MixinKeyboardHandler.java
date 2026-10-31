@@ -1,4 +1,4 @@
-package lol.mixin;
+package mixin;
 
 import net.minecraft.client.KeyboardHandler;
 import net.minecraft.client.Minecraft;

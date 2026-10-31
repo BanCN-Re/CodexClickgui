@@ -16,7 +16,9 @@ import net.minecraft.world.item.BlockItem;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.component.SwingAnimation;
 import net.minecraft.world.phys.BlockHitResult;
+import net.minecraft.world.phys.EntityHitResult;
 import net.minecraft.world.phys.Vec3;
+import net.minecraft.world.level.block.state.BlockState;
 import wtf.carnation.Client;
 import wtf.carnation.InstanceAccess;
 import wtf.carnation.utils.ChatUtil;
@@ -180,5 +182,208 @@ public final class LuaApi implements InstanceAccess {
             return "rejected:" + result;
         }
         return "no_face";
+    }
+
+    public Vec3 position() {
+        return mc.player == null ? Vec3.ZERO : mc.player.position();
+    }
+
+    public Vec3 eyePosition() {
+        return mc.player == null ? Vec3.ZERO : mc.player.getEyePosition();
+    }
+
+    public Vec3 velocity() {
+        return mc.player == null ? Vec3.ZERO : mc.player.getDeltaMovement();
+    }
+
+    public void setVelocity(double x, double y, double z) {
+        if (mc.player != null) mc.player.setDeltaMovement(x, y, z);
+    }
+
+    public void addVelocity(double x, double y, double z) {
+        if (mc.player == null) return;
+        Vec3 velocity = mc.player.getDeltaMovement();
+        mc.player.setDeltaMovement(velocity.x + x, velocity.y + y, velocity.z + z);
+    }
+
+    public float yaw() {
+        return mc.player == null ? 0F : mc.player.getYRot();
+    }
+
+    public float pitch() {
+        return mc.player == null ? 0F : mc.player.getXRot();
+    }
+
+    public void setRotation(float yaw, float pitch) {
+        if (mc.player == null) return;
+        mc.player.setYRot(yaw);
+        mc.player.setXRot(pitch);
+    }
+
+    public void setPosition(double x, double y, double z) {
+        if (mc.player != null) mc.player.setPos(x, y, z);
+    }
+
+    public float health() {
+        return mc.player == null ? 0F : mc.player.getHealth();
+    }
+
+    public float maxHealth() {
+        return mc.player == null ? 0F : mc.player.getMaxHealth();
+    }
+
+    public int foodLevel() {
+        return mc.player == null ? 0 : mc.player.getFoodData().getFoodLevel();
+    }
+
+    public java.util.List<LivingEntity> entities(double range, String filter) {
+        java.util.List<LivingEntity> result = new java.util.ArrayList<>();
+        if (!isInGame()) return result;
+        String kind = filter == null ? "all" : filter.toLowerCase(java.util.Locale.ROOT);
+        for (LivingEntity entity : mc.level.getEntitiesOfClass(LivingEntity.class,
+                mc.player.getBoundingBox().inflate(Math.max(0, range)))) {
+            if (entity == mc.player || !entity.isAlive()) continue;
+            boolean players = entity instanceof Player;
+            if ("players".equals(kind) && !players) continue;
+            if ("mobs".equals(kind) && players) continue;
+            result.add(entity);
+        }
+        result.sort(java.util.Comparator.comparingDouble(mc.player::distanceToSqr));
+        return result;
+    }
+
+    public BlockState blockState(double x, double y, double z) {
+        return mc.level == null ? null : mc.level.getBlockState(BlockPos.containing(x, y, z));
+    }
+
+    public String blockName(double x, double y, double z) {
+        BlockState state = blockState(x, y, z);
+        return state == null ? "" : state.getBlock().toString();
+    }
+
+    public boolean isAir(double x, double y, double z) {
+        BlockState state = blockState(x, y, z);
+        return state != null && state.isAir();
+    }
+
+    public boolean isReplaceable(double x, double y, double z) {
+        BlockState state = blockState(x, y, z);
+        return state != null && state.canBeReplaced();
+    }
+
+    public BlockHitResult crosshairBlock() {
+        return mc.hitResult instanceof BlockHitResult hit ? hit : null;
+    }
+
+    public EntityHitResult crosshairEntity() {
+        return mc.hitResult instanceof EntityHitResult hit ? hit : null;
+    }
+
+    /** Starts and advances one destruction packet for a block; call every tick for survival breaking. */
+    public boolean attackBlock(double x, double y, double z, String faceName) {
+        if (mc.player == null || mc.gameMode == null || mc.level == null) return false;
+        Direction face = direction(faceName);
+        BlockPos pos = BlockPos.containing(x, y, z);
+        boolean started = mc.gameMode.startDestroyBlock(pos, face);
+        if (!started) return false;
+        mc.gameMode.continueDestroyBlock(pos, face);
+        mc.player.swing(InteractionHand.MAIN_HAND, SwingAnimation.DEFAULT, true);
+        return true;
+    }
+
+    public boolean stopBreaking() {
+        if (mc.gameMode == null) return false;
+        mc.gameMode.stopDestroyBlock();
+        return true;
+    }
+
+    public boolean useItemMain() {
+        if (mc.player == null || mc.gameMode == null) return false;
+        InteractionResult result = mc.gameMode.useItem(mc.player, InteractionHand.MAIN_HAND);
+        if (result.consumesAction()) {
+            mc.player.swing(InteractionHand.MAIN_HAND, SwingAnimation.DEFAULT, true);
+            return true;
+        }
+        return false;
+    }
+
+    public boolean useItemOffhand() {
+        if (mc.player == null || mc.gameMode == null) return false;
+        InteractionResult result = mc.gameMode.useItem(mc.player, InteractionHand.OFF_HAND);
+        if (result.consumesAction()) {
+            mc.player.swing(InteractionHand.OFF_HAND, SwingAnimation.DEFAULT, true);
+            return true;
+        }
+        return false;
+    }
+
+    public boolean interactEntity(Entity entity, boolean secondary) {
+        if (mc.player == null || mc.gameMode == null || entity == null) return false;
+        EntityHitResult hit = new EntityHitResult(entity);
+        InteractionResult result = mc.gameMode.interact(mc.player, entity, hit, InteractionHand.MAIN_HAND);
+        if (result.consumesAction()) {
+            mc.player.swing(InteractionHand.MAIN_HAND, SwingAnimation.DEFAULT, true);
+            return true;
+        }
+        return false;
+    }
+
+    public int findHotbarItem(String query) {
+        if (mc.player == null || query == null || query.isBlank()) return -1;
+        String needle = query.toLowerCase(java.util.Locale.ROOT);
+        Inventory inventory = mc.player.getInventory();
+        for (int slot = 0; slot < 9; slot++) {
+            String name = inventory.getItem(slot).toString().toLowerCase(java.util.Locale.ROOT);
+            if (name.contains(needle)) return slot;
+        }
+        return -1;
+    }
+
+    public void setMovementInput(boolean forward, boolean backward, boolean left, boolean right,
+                                 boolean jump, boolean sneak, boolean sprint) {
+        if (mc.player == null) return;
+        mc.player.input.keyPresses = new Input(forward, backward, left, right, jump, sneak, sprint);
+        mc.player.setShiftKeyDown(sneak);
+        mc.player.setSprinting(sprint);
+    }
+
+    public void sendCommand(String command) {
+        if (mc.player != null && command != null && !command.isBlank()) {
+            mc.player.connection.sendCommand(command.startsWith("/") ? command.substring(1) : command);
+        }
+    }
+
+    public boolean toggleModule(String name) {
+        var module = Client.instance.getModuleManager().getModuleByName(name);
+        if (module == null) return false;
+        module.toggle();
+        return module.isEnabled();
+    }
+
+    public boolean moduleEnabled(String name) {
+        var module = Client.instance.getModuleManager().getModuleByName(name);
+        return module != null && module.isEnabled();
+    }
+
+    public int windowWidth() {
+        return mc.getWindow().getWidth();
+    }
+
+    public int windowHeight() {
+        return mc.getWindow().getHeight();
+    }
+
+    public int fps() {
+        return mc.getFps();
+    }
+
+    private static Direction direction(String name) {
+        if (name != null) {
+            try {
+                return Direction.valueOf(name.toUpperCase(java.util.Locale.ROOT));
+            } catch (IllegalArgumentException ignored) {
+            }
+        }
+        return Direction.UP;
     }
 }

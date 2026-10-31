@@ -1,4 +1,4 @@
-package lol.mixin;
+package mixin;
 
 import net.minecraft.client.player.LocalPlayer;
 import org.spongepowered.asm.mixin.Mixin;

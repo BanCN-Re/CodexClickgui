@@ -1,4 +1,4 @@
-package lol.mixin;
+package mixin;
 
 import com.mojang.blaze3d.platform.TextureUtil;
 import net.minecraft.client.gui.font.providers.TrueTypeGlyphProviderDefinition;
