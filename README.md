@@ -25,6 +25,7 @@ Codex 桌面端风格的 Minecraft ClickGUI（Carnation 客户端模块面），
   - [api：战斗](#api战斗)
   - [api：视角与移动](#api视角与移动)
   - [api：快捷栏与方块](#api快捷栏与方块)
+  - [api：封包层](#api封包层)
   - [进阶：直接调 Java](#进阶直接调-java)
 - [样式说明](#样式说明)
 - [仓库里有什么 / 不会推什么](#仓库里有什么--不会推什么)
@@ -162,6 +163,10 @@ end)
 | `module:onUpdate(fn)` | 每个客户端 Tick | — |
 | `module:onRender2D(fn)` | 每帧 2D 渲染 | `graphics`, `partialTicks` |
 | `module:onKey(fn)` | 按键事件 | `key`, `state` |
+| `module:onPacketReceive(fn)` | 收到服务端封包（Netty 线程） | `event` |
+| `module:onPacketReceiveOf(fn, 过滤)` | 同上，只接收指定包名 | `event` |
+| `module:onPacketSend(fn)` | 发出客户端封包 | `event` |
+| `module:onPacketSendOf(fn, 过滤)` | 同上，只接收指定包名 | `event` |
 
 任何回调抛错（包括调了不存在的 API）：模块**自动关闭**、聊天栏提示错误原因，不影响客户端和其他模块。修好脚本后 `load` 同名文件即可再来。
 
@@ -271,6 +276,69 @@ end)
 | `api:hotbarStack(i)` | 该槽的 `ItemStack` |
 | `api:findHotbarBlock()` | 快捷栏里第一个方块物品的槽位，没有为 -1 |
 | `api:placeBlockAdjacent(x, y, z)` | 把当前选中方块放进 (x,y,z) 处的可替换方块（空气/水/草），自动找相邻坚硬面、发合法放置封包。返回 `placed` / `rejected:…` / `no_block` / `no_face` / `not_replaceable` / `no_player` |
+
+### api：封包层
+
+Lua 可以直接收发 26.3 的协议封包，等价于 Moon 运行时的 `on_packet_receive` / `on_packet_send`。
+
+```lua
+-- 只接收指定包；onPacketReceive 则接收全部
+module:onPacketReceiveOf(function(event)
+    if event.packet == "set_entity_motion" and event.entity_id == api:player():getId() then
+        event.cancel = true          -- 丢弃这次击退
+    end
+end, "set_entity_motion")
+
+module:onPacketSend(function(event)
+    api:log(event.packet .. " 0x" .. string.format("%02X", event.packet_id))
+end)
+```
+
+**事件字段**
+
+| 字段 | 说明 |
+|------|------|
+| `event.packet` | 规范名，如 `set_entity_motion`、`move_player_pos_rot` |
+| `event.packet_id` | 数字 id（见下表），未登记为 `-1` |
+| `event.packet_class` | Java 类简名，便于排查 |
+| `event.direction` | `send` / `receive` |
+| `event.cancel` | 设为 `true` 丢弃该封包 |
+| 其余键 | 该封包的字段，snake_case，例如 `x/y/z/yaw/pitch` |
+
+改字段后客户端会用构造器重建封包：26.3 的封包字段全部是 `final`，反射赋值不可用，所以重建是唯一正确路径。不能重建的包（如 `clientbound_player_info_update`）仍然可以读取和取消。
+
+**常用收包字段**
+
+| 包 | 字段 |
+|----|------|
+| `set_entity_motion` | `entity_id`, `motion_x/y/z` |
+| `explode` | `x/y/z`, `strength`, `block_count`, `motion_x/y/z` |
+| `player_position` / `teleport_entity` | `x/y/z`, `yaw`, `pitch`, `motion_x/y/z`, `on_ground` |
+| `set_health` | `health`, `food`, `saturation` |
+| `container_set_slot` | `window_id`, `state_id`, `slot`, `item`, `item_count` |
+| `block_update` | `x/y/z`, `block` |
+| `system_chat` / `player_chat` | `message` |
+| `move_entity*` | `entity_id`, `yaw`, `pitch`, `on_ground` |
+
+**发包**
+
+| 调用 | 说明 |
+|------|------|
+| `api:send_packet(id_or_name, table)` | 发送一个服务端向封包 |
+| `api:send_packet_no_event(id_or_name, table)` | 同上，但不触发 `on_packet_send`（避免递归） |
+| `api:packet_id(name)` / `api:packet_name(id)` | 出站名 ↔ id |
+| `api:packet_id_in(name)` / `api:packet_name_in(id)` | 入站名 ↔ id |
+| `api:packet_list("send")` / `api:packet_list("receive")` | 打印全部 id 表 |
+
+```lua
+api:send_packet("move_player_pos_rot", { x = 0, y = 64, z = 0, yaw = 90, pitch = 0, on_ground = true })
+api:send_packet(0x07, { action = 0, x = 10, y = 64, z = 10, facing = 1, sequence = 0 })
+api:send_packet("chat_command", { command = "spawn" })
+```
+
+**数字 id 兼容性**：`0x00–0x0E`、`0x13`、`0x14`、`0x18`、`0x19` 与 1.8.9 客户端 id 完全一致，Moon 脚本里的这些常量可以直接搬。1.8.9 的 `0x0F confirm_transaction` 在 26.3 已不存在；`0x1A` 起是 26.3 新增（`attack`、`move_vehicle`、`chat_command` 等）。完整表在 `LuaPackets` 的静态初始化块与 `api:packet_list()` 输出里。
+
+> 线程：`on_packet_receive` 在 Netty 线程执行，和 Moon 一致。回调里不要直接改世界或渲染状态；需要操作游戏对象时用 `api:minecraft():execute(function() ... end)` 回到客户端线程。
 
 ### 进阶：直接调 Java
 

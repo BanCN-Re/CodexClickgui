@@ -1,5 +1,6 @@
 package wtf.carnation.script;
 
+import org.luaj.vm2.LuaTable;
 import org.luaj.vm2.LuaValue;
 import org.luaj.vm2.lib.jse.CoerceJavaToLua;
 import wtf.carnation.Client;
@@ -20,7 +21,7 @@ import java.util.Map;
 public final class LuaModule extends Module {
     private final Path file;
     private final Map<String, LuaValue> callbacks;
-    private boolean failed;
+    private volatile boolean failed;
 
     LuaModule(Path file, String name, Category category, String description,
               Map<String, LuaValue> callbacks, List<Value<?>> values) {
@@ -28,6 +29,7 @@ public final class LuaModule extends Module {
         this.file = file;
         this.callbacks = Map.copyOf(callbacks);
         addValues(values.toArray(new Value<?>[0]));
+        LuaPacketDispatcher.INSTANCE.register(this);
     }
 
     public Path file() {
@@ -67,11 +69,41 @@ public final class LuaModule extends Module {
         }
     }
 
+    /**
+     * Called by {@link LuaPacketDispatcher} from the {send, receive} hook.
+     * Returns {@code true} when the script set {@code event.cancel = true}.
+     */
+    public boolean dispatchPacket(String callback, LuaTable event) {
+        LuaValue function = callbacks.get(callback);
+        if (function == null || function.isnil() || !isEnabled()) return false;
+        String packet = event.get("packet").tojstring();
+        if (!matchesFilter(callback, packet)) return false;
+        invokeResult(callback, event);
+        LuaValue cancel = event.get("cancel");
+        return !cancel.isnil() && cancel.toboolean();
+    }
+
+    /** Lets the dispatcher skip building a table when no script subscribed to this packet. */
+    public boolean wantsPacket(String packetName, boolean outbound) {
+        String callback = outbound ? "onPacketSend" : "onPacketReceive";
+        if (!isEnabled() || callbacks.get(callback) == null) return false;
+        return matchesFilter(callback, packetName);
+    }
+
+    private boolean matchesFilter(String callback, String packetName) {
+        LuaValue filter = callbacks.get(callback + "Filter");
+        if (filter == null || !filter.istable()) return true;
+        for (int i = 1; i <= filter.length(); i++) {
+            if (filter.get(i).tojstring().equalsIgnoreCase(packetName)) return true;
+        }
+        return false;
+    }
+
     private void invoke(String callback, LuaValue... arguments) {
         invokeResult(callback, arguments);
     }
 
-    private LuaValue invokeResult(String callback, LuaValue... arguments) {
+    private synchronized LuaValue invokeResult(String callback, LuaValue... arguments) {
         if (failed) return null;
         LuaValue function = callbacks.get(callback);
         if (function == null || function.isnil()) return null;

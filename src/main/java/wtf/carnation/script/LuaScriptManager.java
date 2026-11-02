@@ -256,10 +256,12 @@ public final class LuaScriptManager implements InstanceAccess {
     }
 
     private void installExample() throws IOException {
-        Path example = directory.resolve("KillAura.lua");
-        if (Files.exists(example)) return;
-        try (InputStream input = LuaScriptManager.class.getResourceAsStream("/assets/carnation/scripts/KillAura.lua")) {
-            if (input != null) Files.copy(input, example);
+        for (String name : new String[]{"KillAura.lua", "PacketLab.lua"}) {
+            Path example = directory.resolve(name);
+            if (Files.exists(example)) continue;
+            try (InputStream input = LuaScriptManager.class.getResourceAsStream("/assets/carnation/scripts/" + name)) {
+                if (input != null) Files.copy(input, example);
+            }
         }
     }
 
@@ -270,6 +272,7 @@ public final class LuaScriptManager implements InstanceAccess {
 
     private void unloadModule(LuaModule module) {
         if (module.isEnabled()) module.setState(false);
+        LuaPacketDispatcher.INSTANCE.unregister(module);
         Client.instance.getModuleManager().unregisterModule(module);
         scripts.remove(module);
     }
@@ -343,6 +346,11 @@ public final class LuaScriptManager implements InstanceAccess {
                 api:useItemMain()、api:useItemOffhand()、api:interactEntity(entity, secondary)、api:hotbarSlot()、api:setHotbarSlot(i)、api:hotbarStack(i)、api:findHotbarBlock()、api:findHotbarItem(name)。
                 api:setMovementInput(forward,backward,left,right,jump,sneak,sprint)、api:setSneaking(bool)、api:isSneaking()、api:sendCommand(command)、api:toggleModule(name)、api:moduleEnabled(name)、api:windowWidth()、api:windowHeight()、api:fps()。
                 ui 是自绘 UI API：ui:rect/roundedRect/roundedOutline/shadow/circle/circleOutline/line；ui:text/textMiddle/textCentered/textRight/title/small/semibold/icon；ui:textWidth/smallWidth/semiboldWidth/ellipsize。onRender2D(graphics, partialTicks) 中把 graphics 传给这些方法即可，形状由 renderpearl 三角形管线绘制并带真实像素抗锯齿，文字使用烘焙 TrueType 字体。
+                封包层：module:onPacketReceive(fn) / module:onPacketReceiveOf(fn, "包名" 或 {"包1","包2"}) 注册收包回调，module:onPacketSend(fn) / module:onPacketSendOf(fn, 过滤) 注册发包回调；event.packet 为规范名，event.packet_id 为数字 id，event.cancel = true 丢弃该封包，改字段后自动重建封包（26.3 字段全为 final，无法反射赋值，只能重建）。
+                收包字段：set_entity_motion 的 entity_id/motion_x/motion_y/motion_z；explode 的 x/y/z/strength/motion_x..；player_position 与 teleport_entity 的 x/y/z/yaw/pitch；set_health 的 health/food/saturation；container_set_slot 的 window_id/state_id/slot/item_count；block_update 的 x/y/z/block；system_chat 的 message；其余包用 packet 与字段同名 snake_case 键读取。
+                发包字段：move_player_pos_rot(x,y,z,yaw,pitch,on_ground)、move_player(on_ground)、player_action(action,x,y,z,facing,sequence)、use_item_on(x,y,z,facing,offset_x,offset_y,offset_z,sequence)、interact(target,action 0 或 2)、set_carried_item(slot)、punch()、player_input(forward,backward,left,right,jumping,sneaking,sprint)、container_close(window_id)、attack(target)、chat_command(command)。
+                api:send_packet(id_or_name, table)、api:send_packet_no_event(id_or_name, table)、api:packet_id(name)、api:packet_name(id)、api:packet_id_in(name)、api:packet_name_in(id)、api:packet_list("send")/api:packet_list("receive")。
+                数字 id 0x00-0x0E、0x13、0x14、0x18、0x19 与 1.8.9 客户端 id 一致，便于直接迁移 Moon 脚本；1.8.9 的 0x0F confirm_transaction 在 26.3 已不存在，0x1A 起为 26.3 新增。
                 需要未封装的 26.3 原版能力时，继续使用 luajava.bindClass / api:minecraft() / api:player() / api:world() 直接访问 Java 对象；这是全能力逃生口，不受上面封装限制。
                 示例：
                 module:name("KillAura")
@@ -432,6 +440,41 @@ public final class LuaScriptManager implements InstanceAccess {
 
         public void onChat(LuaValue callback) {
             callbacks.put("onChat", callback.checkfunction());
+        }
+
+        /** {@code module:onPacketReceive(fn)} — every inbound packet (use a filter for hot paths). */
+        public void onPacketReceive(LuaValue callback) {
+            callbacks.put("onPacketReceive", callback.checkfunction());
+        }
+
+        /**
+         * {@code module:onPacketReceiveOf(fn, "set_entity_motion")} or
+         * {@code module:onPacketReceiveOf(fn, {"set_entity_motion", "explode"})}.
+         */
+        public void onPacketReceiveOf(LuaValue callback, LuaValue packetNames) {
+            callbacks.put("onPacketReceive", callback.checkfunction());
+            putFilter("onPacketReceiveFilter", packetNames);
+        }
+
+        public void onPacketSend(LuaValue callback) {
+            callbacks.put("onPacketSend", callback.checkfunction());
+        }
+
+        public void onPacketSendOf(LuaValue callback, LuaValue packetNames) {
+            callbacks.put("onPacketSend", callback.checkfunction());
+            putFilter("onPacketSendFilter", packetNames);
+        }
+
+        private void putFilter(String key, LuaValue packetNames) {
+            if (packetNames == null || packetNames.isnil()) return;
+            LuaTable filter = new LuaTable();
+            if (packetNames.istable()) {
+                LuaTable source = packetNames.checktable();
+                for (int i = 1; i <= source.length(); i++) filter.set(i, source.get(i));
+            } else {
+                filter.set(1, packetNames);
+            }
+            callbacks.put(key, filter);
         }
     }
 }

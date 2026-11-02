@@ -19,8 +19,12 @@ import net.minecraft.world.phys.BlockHitResult;
 import net.minecraft.world.phys.EntityHitResult;
 import net.minecraft.world.phys.Vec3;
 import net.minecraft.world.level.block.state.BlockState;
+import org.luaj.vm2.LuaTable;
+import org.luaj.vm2.LuaValue;
 import wtf.carnation.Client;
 import wtf.carnation.InstanceAccess;
+import wtf.carnation.script.LuaPacketDispatcher;
+import wtf.carnation.script.LuaPackets;
 import wtf.carnation.utils.ChatUtil;
 
 public final class LuaApi implements InstanceAccess {
@@ -375,6 +379,86 @@ public final class LuaApi implements InstanceAccess {
 
     public int fps() {
         return mc.getFps();
+    }
+
+    // ---------------------------------------------------------------- packets
+
+    /**
+     * Sends one serverbound packet. {@code target} is a numeric id or a canonical name
+     * ("move_player_pos_rot", "use_item_on", …). {@code args} is a Lua table using the
+     * same field names the packet events expose.
+     */
+    public boolean send_packet(LuaValue target, LuaValue args) {
+        return sendPacket0(target, args, false);
+    }
+
+    /** Same as {@code api:send_packet} but the packet does not fire {@code on_packet_send}. */
+    public boolean send_packet_no_event(LuaValue target, LuaValue args) {
+        return sendPacket0(target, args, true);
+    }
+
+    public boolean sendPacket(int id, LuaTable args) {
+        return sendPacket0(LuaValue.valueOf(id), args == null ? LuaValue.NIL : args, false);
+    }
+
+    public boolean sendPacket(String name, LuaTable args) {
+        return sendPacket0(LuaValue.valueOf(name), args == null ? LuaValue.NIL : args, false);
+    }
+
+    public int packet_id(String name) {
+        return LuaPackets.idOfName(name, true);
+    }
+
+    public int packet_id_in(String name) {
+        return LuaPackets.idOfName(name, false);
+    }
+
+    public String packet_name(int id) {
+        String name = LuaPackets.nameOfId(id, true);
+        return name == null ? "" : name;
+    }
+
+    public String packet_name_in(int id) {
+        String name = LuaPackets.nameOfId(id, false);
+        return name == null ? "" : name;
+    }
+
+    /** {@code api:packet_list("send")} / {@code api:packet_list("receive")}. */
+    public String packet_list(String direction) {
+        boolean outbound = direction == null || !direction.toLowerCase(java.util.Locale.ROOT).startsWith("rec");
+        return String.join("\n", LuaPackets.describe(outbound));
+    }
+
+    private boolean sendPacket0(LuaValue target, LuaValue argsValue, boolean silent) {
+        if (mc.player == null || mc.player.connection == null) return false;
+        LuaTable args = argsValue != null && argsValue.istable() ? argsValue.checktable() : new LuaTable();
+        int id = target != null && target.isnumber()
+                ? target.toint()
+                : LuaPackets.idOfName(target == null ? null : target.tojstring(), true);
+        if (id < 0) return false;
+        if (id == 0x01) {
+            LuaValue message = args.get("message");
+            if (message.isnil()) message = args.get(1);
+            String text = message.isnil() ? "" : message.tojstring();
+            if (text.isEmpty()) return false;
+            boolean previous = LuaPacketDispatcher.INSTANCE.muted();
+            if (silent) LuaPacketDispatcher.INSTANCE.mute(true);
+            try {
+                mc.player.connection.sendChat(text);
+            } finally {
+                LuaPacketDispatcher.INSTANCE.mute(previous);
+            }
+            return true;
+        }
+        var packet = LuaPackets.create(id, true, args);
+        boolean previous = LuaPacketDispatcher.INSTANCE.muted();
+        if (silent) LuaPacketDispatcher.INSTANCE.mute(true);
+        try {
+            mc.player.connection.send(packet);
+        } finally {
+            LuaPacketDispatcher.INSTANCE.mute(previous);
+        }
+        return true;
     }
 
     private static Direction direction(String name) {
