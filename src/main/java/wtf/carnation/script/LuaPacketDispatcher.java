@@ -8,8 +8,8 @@ import java.util.concurrent.CopyOnWriteArrayList;
 /**
  * Single funnel between {@code Connection} and the Lua modules.
  *
- * <p>Inbound dispatch happens on the Netty thread, exactly like the Moon/LuaJ runtime, so a
- * script that edits a packet field sees the change before {@code channelRead0} processes it.
+ * <p>Inbound dispatch happens on the Netty thread, so a script that edits a packet
+ * field sees the change before {@code channelRead0} processes it.
  * Every module callback is serialized on its own monitor (see {@link LuaModule}), which keeps
  * LuaJ globals safe when the client thread runs {@code onUpdate} at the same time.</p>
  *

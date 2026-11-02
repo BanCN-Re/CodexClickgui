@@ -117,10 +117,8 @@ import java.util.UUID;
 /**
  * 26.3 packet ↔ Lua table bridge.
  *
- * <p>Field names follow the 1.8.9 protocol wherever the packet has a direct 1.8.9
- * equivalent, so scripts written for the Moon/LuaJ runtime keep working. Numeric ids
- * 0x00–0x0E, 0x13, 0x14, 0x18 and 0x19 are identical to the 1.8.9 client ids; ids
- * from 0x40 upward are Carnation-specific additions for 26.3-only packets.</p>
+ * <p>Every handled packet has a canonical name and a numeric id; both directions keep
+ * their own table, so the same number may mean different packets in each direction.</p>
  *
  * <p>Everything is rebuilt rather than reflectively written: 26.3 marks every packet
  * field final, so {@code Field.set} is not usable. Reads use reflection; writes go
@@ -146,7 +144,7 @@ public final class LuaPackets {
     }
 
     static {
-        // ---- serverbound: 1.8.9-compatible block ----
+        // ---- serverbound ----
         out("keep_alive", 0x00);
         out("chat", 0x01);
         out("interact", 0x02);
@@ -183,7 +181,7 @@ public final class LuaPackets {
         out("chat_command", 0x26);
         out("container_button_click", 0x27);
 
-        // ---- clientbound: 1.8.9-compatible block ----
+        // ---- clientbound ----
         in("keep_alive", 0x00);
         in("system_chat", 0x02);
         in("set_health", 0x06);

@@ -350,7 +350,7 @@ public final class LuaScriptManager implements InstanceAccess {
                 收包字段：set_entity_motion 的 entity_id/motion_x/motion_y/motion_z；explode 的 x/y/z/strength/motion_x..；player_position 与 teleport_entity 的 x/y/z/yaw/pitch；set_health 的 health/food/saturation；container_set_slot 的 window_id/state_id/slot/item_count；block_update 的 x/y/z/block；system_chat 的 message；其余包用 packet 与字段同名 snake_case 键读取。
                 发包字段：move_player_pos_rot(x,y,z,yaw,pitch,on_ground)、move_player(on_ground)、player_action(action,x,y,z,facing,sequence)、use_item_on(x,y,z,facing,offset_x,offset_y,offset_z,sequence)、interact(target,action 0 或 2)、set_carried_item(slot)、punch()、player_input(forward,backward,left,right,jumping,sneaking,sprint)、container_close(window_id)、attack(target)、chat_command(command)。
                 api:send_packet(id_or_name, table)、api:send_packet_no_event(id_or_name, table)、api:packet_id(name)、api:packet_name(id)、api:packet_id_in(name)、api:packet_name_in(id)、api:packet_list("send")/api:packet_list("receive")。
-                数字 id 0x00-0x0E、0x13、0x14、0x18、0x19 与 1.8.9 客户端 id 一致，便于直接迁移 Moon 脚本；1.8.9 的 0x0F confirm_transaction 在 26.3 已不存在，0x1A 起为 26.3 新增。
+                数字 id 每个方向独立，0x0F 未使用；完整表用 api:packet_list("send") / api:packet_list("receive") 查看。
                 需要未封装的 26.3 原版能力时，继续使用 luajava.bindClass / api:minecraft() / api:player() / api:world() 直接访问 Java 对象；这是全能力逃生口，不受上面封装限制。
                 示例：
                 module:name("KillAura")
