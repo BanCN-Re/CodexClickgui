@@ -14,6 +14,10 @@ import java.util.List;
 @Setter
 public class Module {
     protected static final Minecraft mc = Minecraft.getInstance();
+    /** Last module toggled, used by the Island HUD. */
+    public static Module lastToggled;
+    public static long lastToggledAt;
+    public static boolean lastToggledState;
     private final String name;
     private final Category category;
     /** One line shown under the module name in the GUI. */
@@ -42,6 +46,9 @@ public class Module {
         if (this.enabled == enabled) return;
         this.enabled = enabled;
         try {
+            lastToggled = this;
+            lastToggledAt = System.currentTimeMillis();
+            lastToggledState = enabled;
             if (enabled) {
                 Client.instance.getEventManager().register(this);
                 playToggleSound(true);

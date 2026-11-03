@@ -6,12 +6,14 @@ import wtf.carnation.module.Module;
 import wtf.carnation.module.value.impl.ModeValue;
 import wtf.carnation.ui.codex.CodexScreen;
 import wtf.carnation.ui.codex.ZCodeScreen;
+import wtf.carnation.ui.naven.NavenScreen;
 
 public class ClickGui extends Module {
-    private final ModeValue style = new ModeValue("Style", new String[]{"Codex", "ZCode"}, "Codex");
+    private final ModeValue style = new ModeValue("Style",
+            new String[]{"Codex", "ZCode", "Naven"}, "Codex");
 
     public ClickGui() {
-        super("ClickGui", Category.RENDER, "打开 Codex / ZCode 风格的模块面板");
+        super("ClickGui", Category.RENDER, "打开 Codex / ZCode / Naven 风格的模块面板");
         setKey(InputConstants.KEY_RSHIFT);
         addValues(style);
     }
@@ -23,8 +25,12 @@ public class ClickGui extends Module {
 
     @Override
     protected void onEnable() {
-        boolean zcode = style.is("ZCode");
-        mc.execute(() -> mc.gui.setScreen(zcode ? new ZCodeScreen() : new CodexScreen()));
+        String mode = style.get();
+        mc.execute(() -> mc.gui.setScreen(switch (mode) {
+            case "ZCode" -> new ZCodeScreen();
+            case "Naven" -> new NavenScreen();
+            default -> new CodexScreen();
+        }));
         setState(false);
     }
 }

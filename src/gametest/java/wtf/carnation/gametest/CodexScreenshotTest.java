@@ -8,7 +8,7 @@ import net.fabricmc.fabric.api.client.gametest.v1.screenshot.TestScreenshotOptio
 import net.minecraft.client.gui.screens.TitleScreen;
 import wtf.carnation.Client;
 import wtf.carnation.codex.CodexChat;
-import wtf.carnation.module.impl.misc.Test;
+import wtf.carnation.module.impl.render.Watermark;
 import wtf.carnation.ui.codex.CodexScreen;
 
 import java.nio.charset.StandardCharsets;
@@ -31,6 +31,9 @@ public class CodexScreenshotTest implements FabricClientGameTest {
         context.waitForScreen(TitleScreen.class);
         context.getInput().resizeWindow(WIDTH, HEIGHT);
         context.waitTicks(5);
+
+        // The ported Naven ClickGUI first, so its screenshots exist even if a later step fails.
+        navenShots(context);
 
         // A throwaway account file so the composer's model picker is live (no network is used).
         try {
@@ -174,8 +177,8 @@ public class CodexScreenshotTest implements FabricClientGameTest {
         try (TestSingleplayerContext world = context.worldBuilder().create()) {
             world.getConnection().waitForChunksRender();
             context.runOnClient(mc -> {
-                Test test = Client.instance.getModuleManager().getModule(Test.class);
-                if (!test.isEnabled()) test.toggle();
+                Watermark watermark = Client.instance.getModuleManager().getModule(Watermark.class);
+                if (watermark != null && !watermark.isEnabled()) watermark.toggle();
             });
             context.waitTicks(20);
             shot(context, "08_hud");
@@ -184,6 +187,43 @@ public class CodexScreenshotTest implements FabricClientGameTest {
             shot(context, "09_ingame_gui");
             context.setScreen(() -> null);
         }
+    }
+
+    /** The Naven window sits at 100,100 in GUI pixels. */
+    private static int navenGuiScale = 1;
+
+    /** The ported Naven ClickGUI: category list, module list and the settings column. */
+    private static void navenShots(ClientGameTestContext context) {
+        context.runOnClient(mc -> {
+            navenGuiScale = mc.getWindow().getGuiScale();
+            mc.options.guiScale().set(2);
+        });
+        context.waitTicks(6);
+        context.runOnClient(mc -> navenGuiScale = mc.getWindow().getGuiScale());
+        context.waitTicks(2);
+
+        context.setScreen(wtf.carnation.ui.naven.NavenScreen::new);
+        context.waitTicks(20);
+        shot(context, "20_naven_categories");
+
+        // The Naven window sits at 100,100 in GUI pixels; Movement is the second row.
+        clickGui(context, 130, 166, InputConstants.MOUSE_BUTTON_LEFT);
+        context.waitTicks(25);
+        shot(context, "21_naven_modules");
+
+        // Right click the first module row to open its settings column.
+        clickGui(context, 140, 132, InputConstants.MOUSE_BUTTON_RIGHT);
+        context.waitTicks(25);
+        shot(context, "22_naven_values");
+
+        context.setScreen(() -> null);
+    }
+
+    private static void clickGui(ClientGameTestContext context, float guiX, float guiY, int button) {
+        context.getInput().setCursorPos(guiX * navenGuiScale, guiY * navenGuiScale);
+        context.waitTick();
+        context.getInput().pressMouse(button);
+        context.waitTick();
     }
 
     private static void shot(ClientGameTestContext context, String name) {

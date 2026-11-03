@@ -1,13 +1,48 @@
+<div align="center">
+
 # CodexClickgui
 
-Codex 桌面端风格的 Minecraft ClickGUI（Carnation 客户端模块面），目标版本 **Minecraft 26.3 / Fabric Loader 0.19.5 / Java 25**。
+**Minecraft 26.3 · Fabric Loader 0.19.5 · Java 25**  
+Codex 桌面端风格的客户端界面，内置 Lua 模块系统
 
-本仓库是可构建的完整工程：打开 GUI、分类浏览、模块卡片、右侧设置面板、搜索与 `.` 命令都已接好，并且内置 **Lua 模块系统**——不写 Java 也能往客户端里加功能。下面说明怎么运行、怎么接入你自己的客户端、怎么写 Lua 模块，以及配色/样式从哪里改。
+<br>
 
-## 导航
+## 💬 QQ 交流群：**737086340**
 
-- [快速运行](#快速运行)
-- [接入用法](#接入用法)
+安装、使用、报 Bug、提需求 —— 进群直接说。  
+QQ 搜索 **737086340** 即可加入。
+
+</div>
+
+---
+
+## 这是什么
+
+一个**可直接构建、可直接运行**的完整 Fabric 客户端工程。打开游戏就能用：ClickGUI、分类浏览、模块卡片、右侧设置面板、搜索、`.` 命令全部接好，
+并且内置 **Lua 模块系统** —— 不写 Java 也能往客户端里加功能。
+
+- **67 个内置模块**，覆盖战斗 / 移动 / 渲染 / 杂项
+- **三套界面**：Codex / ZCode / Naven，由 `ClickGui` 的 `Style` 选项切换
+- **Lua 模块**与 Java 模块完全同权：出现在分类里、有设置面板、能绑键、配置自动保存
+- **封包层**开放到 Lua：收发 26.3 协议包，可读字段、可取消、可重建
+- **客户端游戏测试**：`runClientGameTest` 真实启动客户端、跑断言、截图
+
+| 项 | 值 |
+|---|---|
+| Minecraft | `26.3`（无混淆，无需 mappings） |
+| Fabric Loader | `0.19.5` |
+| Fabric API | `0.165.0+26.3` |
+| Java | `25` |
+| 图形后端 | Vulkan（游戏测试走 OpenGL） |
+| 模组版本 | `0.1.0` |
+
+---
+
+## 目录
+
+- [快速开始](#快速开始)
+- [客户端模块](#客户端模块)
+- [界面接入](#界面接入)
   - [在现有客户端里打开界面](#在现有客户端里打开界面)
   - [接到你自己的 Module 系统](#接到你自己的-module-系统)
   - [依赖与渲染前提](#依赖与渲染前提)
@@ -27,12 +62,16 @@ Codex 桌面端风格的 Minecraft ClickGUI（Carnation 客户端模块面），
   - [api：快捷栏与方块](#api快捷栏与方块)
   - [api：封包层](#api封包层)
   - [进阶：直接调 Java](#进阶直接调-java)
-- [样式说明](#样式说明)
-- [仓库里有什么 / 不会推什么](#仓库里有什么--不会推什么)
+- [样式与主题](#样式与主题)
+- [构建与测试](#构建与测试)
+- [仓库内容](#仓库内容)
+- [常见问题](#常见问题)
 - [免责声明](#免责声明)
 - [许可证](#许可证)
 
-## 快速运行
+---
+
+## 快速开始
 
 ```bash
 ./gradlew runClient
@@ -40,7 +79,26 @@ Codex 桌面端风格的 Minecraft ClickGUI（Carnation 客户端模块面），
 
 进游戏后按 **Right Shift** 打开 ClickGUI（模块名 `ClickGui`，分类 Render）。关掉 GUI 会自动存配置。
 
-## 接入用法
+想换外观：在 ClickGUI 里找到 `ClickGui` 模块自己的 `Style` 选项，可选 **Codex** / **ZCode** / **Naven**。
+
+---
+
+## 客户端模块
+
+共 **67 个**，按分类列出（ClickGUI 侧栏同一分组）：
+
+| 分类 | 数量 | 模块 |
+|---|---:|---|
+| **Combat** 战斗 | 10 | AimAssist, AntiBots, AutoClicker, AutoHeal, AutoThrow, Criticals, CrystalAura, GhostHand, KillAura, Velocity |
+| **Movement** 移动 | 17 | AutoMLG, Blink, FastCobweb, FastWeb, Flight, InventoryMove, LegitSpeed, LongJump, NoFall, NoJumpDelay, NoSlow, SafeWalk, Speed, Sprint, StopMove, Stuck, TargetStrafe |
+| **Render** 渲染 | 32 | AntiBlindness, AntiNausea, BedPlates, ChestESP, ClickGui, Compass, EffectDisplay, FullBright, Glow, HotKeys, Interface, Island, ItemPhysics, ItemTags, LowFire, ModuleList, MotionBlur, NameProtect, NameTags, NoFOV, NoHurtCam, NoRender, PearlInfo, PostProcess, Projectile, Rotation, Scoreboard, ScoreboardSpoof, TargetInfo, TimeChanger, ViewClip, Watermark |
+| **Misc** 杂项 | 8 | AntiFireball, AutoTools, ClientFriend, FastPlace, KillSay, MidPearl, Spammer, Teams |
+
+> Lua 模块会追加到对应分类中，和 Java 模块并列显示。
+
+---
+
+## 界面接入
 
 核心入口只有两层：
 
@@ -55,16 +113,26 @@ Codex 桌面端风格的 Minecraft ClickGUI（Carnation 客户端模块面），
 mc.execute(() -> mc.gui.setScreen(new wtf.carnation.ui.codex.CodexScreen()));
 ```
 
-本仓库的默认绑定示例：
+本仓库的真实实现在 `ClickGui.java`：`Style` 是 `ModeValue`，按选项分派到三套界面；`isMomentaryAction()` 让模块开关随开随关。
 
 ```java
 // ClickGui.java
 setKey(InputConstants.KEY_RSHIFT);
 
 @Override
+public boolean isMomentaryAction() {
+    return true;
+}
+
+@Override
 protected void onEnable() {
-    mc.execute(() -> mc.gui.setScreen(new CodexScreen()));
-    setState(false); // 打开后立刻关闭模块开关，避免一直“启用”
+    String mode = style.get();
+    mc.execute(() -> mc.gui.setScreen(switch (mode) {
+        case "ZCode" -> new ZCodeScreen();
+        case "Naven" -> new NavenScreen();
+        default -> new CodexScreen();
+    }));
+    setState(false); // 打开后立刻关闭模块开关，避免一直"启用"
 }
 ```
 
@@ -89,19 +157,21 @@ protected void onEnable() {
 | 组件 | 作用 |
 |------|------|
 | `wtf.carnation.graphics.Render2D` | 圆角矩形、描边、阴影、裁剪、颜色混合 |
-| `wtf.carnation.graphics.UiFont` | Inter / MiSans / Lucide 图标的烘焙 TrueType |
+| `wtf.carnation.graphics.UiFont` | Figtree / MiSans / Lucide 图标的烘焙 TrueType |
 | `wtf.carnation.graphics.Icons` | Lucide 码点常量 |
 | `lol.mixin.MixinTrueTypeGlyphProvider*` | 让自定义 TTF 能正确出字形 |
 | `carnation.accesswidener` | 访问绘制所需的内部字段 |
 
-字体资源在 `src/main/resources/assets/carnation/font/`（含 `inter-*.ttf`、`misans-gb2312.ttf`、`lucide.ttf` 与各号字 json）。迁 GUI 时请整目录带走，否则侧栏/卡片文字和图标会对不齐。
+字体资源在 `src/main/resources/assets/carnation/font/`（`figtree-*.ttf`、`misans-gb2312.ttf`、`lucide.ttf` 与各号字 json，中文再回退系统微软雅黑）。迁 GUI 时请整目录带走，否则侧栏/卡片文字和图标会对不齐。
 
 ### 命令与配置
 
-- 界面底部输入框：普通文字会过滤模块；以 `.` 开头走 `CommandManager`（如 `.bind`、`.toggle`、`.lua`）。
-- 关闭界面时调用 `ConfigManager#saveAllConfig`；配置目录默认在游戏目录下的 `Carnation/`。
+- 界面底部输入框：普通文字会过滤模块；以 `.` 开头走 `CommandManager`。内置命令：`.bind`、`.toggle`、`.module`、`.config`、`.lua`、`.help`。
+- 关闭界面时调用 `ConfigManager#saveAllConfig`，写入游戏目录下的 `Carnation/modules.json`。
 
 只想要外观、不要命令系统时，可删掉 composer 里对 `CommandManager` 的分支，保留搜索过滤即可。
+
+---
 
 ## Lua 模块开发
 
@@ -142,6 +212,8 @@ end)
 
 放进 `Carnation/scripts/KillAura.lua`，聊天里输入 `.lua load KillAura.lua`（或 `.lua reload`），ClickGUI 的 Combat 分类里就出现了。
 
+> 注意：示例里的模块名 `KillAura` 与内置 Java 模块同名，实际使用请改名（如 `MyKillAura`），否则会被重名检查拒绝。
+
 ### 设置项
 
 声明即出现在模块的设置面板里，配置随 `ConfigManager` 自动持久化：
@@ -172,7 +244,7 @@ end)
 
 ### 完整示例：自动搭路
 
-这是仓库作者实际在用的 Scaffold 脚本，覆盖了“找方块 → 切槽位 → 放置 → 还原状态”的完整套路：
+这是仓库作者实际在用的 Scaffold 脚本，覆盖了"找方块 → 切槽位 → 放置 → 还原状态"的完整套路：
 
 ```lua
 module:name("Scaffold")
@@ -225,6 +297,8 @@ end)
 | `.lua load <文件>` | 加载/热重载一个脚本（相对 `Carnation/scripts/` 或绝对路径） |
 | `.lua unload <模块名>` | 卸载模块 |
 | `.lua <源码>` | 直接执行一段 Lua 源码并注册为 `ChatScript` 模块 |
+
+---
 
 ## Lua API 参考
 
@@ -336,7 +410,9 @@ local pos = BlockPos:containing(api:player():getX(), api:player():getY(), api:pl
 - `Vec3` 的坐标读字段 **`.x` / `.y` / `.z`**，这个版本没有 `getX()/getY()/getZ()`。
 - 不要用 luajava 自己构造 `BlockHitResult` 或直接调 `gameMode:useItemOn`——封包细节已经封在 `api:placeBlockAdjacent` 里，直接用。
 
-## 样式说明
+---
+
+## 样式与主题
 
 所有颜色集中在 `wtf.carnation.ui.codex.CodexTheme`，按 Codex 桌面端截图像素取样。改主题优先改这个类，不要在 `CodexScreen` 里散落硬编码。
 
@@ -388,11 +464,61 @@ local pos = BlockPos:containing(api:player():getX(), api:player():getY(), api:pl
 
 改布局改这些常量；改观感改 `CodexTheme`。
 
-## 仓库里有什么 / 不会推什么
+---
 
-**包含**：`src/`、Gradle 包装器与构建脚本。
+## 构建与测试
 
-**不包含**（已用 `.gitignore` 挡掉）：`.gradle/`、`build/`、`run/`（游戏运行目录，含 `logs/`、崩溃转储、配置、本地脚本目录 `run/Carnation/scripts/`）、内置示例 Lua 脚本资源（本地自留；jar 里没有它时 `installExample` 静默跳过，不影响任何功能）。
+```bash
+# 编译并打包
+./gradlew build
+
+# 启动客户端（Vulkan）
+./gradlew runClient
+
+# 客户端游戏测试：真实启动客户端、跑断言、截图
+./gradlew runClientGameTest
+```
+
+游戏测试产出的截图在 `build/run/clientGameTest/screenshots/`，日志在 `run/logs/latest.log`。
+
+几点约定：
+
+- `runClient` 固定 `--graphicsBackend vulkan`，壁纸走 Vulkan 渲染路径。
+- `runClientGameTest` 固定 `--graphicsBackend opengl`：测试会反复改窗口尺寸、快速换帧，Vulkan 在驱动叠加层上容易触发 `VK_ERROR_DEVICE_LOST`。
+- 游戏测试的断言必须通过 `context.computeOnClient(...)` / `runOnClient(...)` 执行，测试线程直接调 `Minecraft.getInstance()` 会抛异常。
+
+---
+
+## 仓库内容
+
+**包含**：`src/`（主源码 + 游戏测试）、Gradle 包装器与构建脚本、`MIGRATION-STATUS.md`（模块迁移记录）。
+
+**不包含**（已用 `.gitignore` 挡掉）：
+
+- `.gradle/`、`build/`、`run/`（游戏运行目录，含 `logs/`、崩溃转储、配置、本地脚本目录 `run/Carnation/scripts/`）
+- 内置示例 Lua 脚本资源（本地自留；jar 里没有它时 `installExample` 静默跳过，不影响任何功能）
+- `.vscode/`、`.idea/`、本地素材与临时产物
+
+---
+
+## 常见问题
+
+**Q：按 Right Shift 没反应？**  
+确认模块 `ClickGui` 已启用（分类 Render），或者绑定被别的模组抢了——用 `.bind` 重新绑一个键。
+
+**Q：Lua 脚本加载失败，提示模块名已存在？**  
+Lua 模块不能与任何已注册模块（含 Java 模块）重名。给脚本换个名字再 `.lua load`。
+
+**Q：启动日志里有一堆 Realms / SignedJWT 报错？**  
+开发环境用离线账号，连不上 Realms 是正常的，不影响单机与 ClickGUI。
+
+**Q：启动黑屏 / 崩溃在图形初始化？**  
+本工程固定 Vulkan 后端。请确认显卡驱动支持 Vulkan；需要 OpenGL 时自行改 `build.gradle` 里 `runs.client.programArgs`。
+
+**Q：改了模块设置没保存？**  
+配置在关闭 ClickGUI 时统一写盘，位置是游戏目录下的 `Carnation/`。
+
+---
 
 ## 免责声明
 
@@ -410,10 +536,20 @@ local pos = BlockPos:containing(api:player():getX(), api:player():getY(), api:pl
 在此声明：
 
 1. **仅供学习与技术交流**。本项目用于研究 Minecraft 26.3 客户端 UI、Lua 集成与 Fabric 模组开发，不得用于商业用途，也不建议在多人服务器上使用可能影响游戏公平的功能。
-2. **按“原样”提供**。不对代码的可用性、正确性、安全性作任何明示或暗示的担保；因使用或滥用本仓库内容产生的任何直接或间接后果，由使用者自行承担。
+2. **按"原样"提供**。不对代码的可用性、正确性、安全性作任何明示或暗示的担保；因使用或滥用本仓库内容产生的任何直接或间接后果，由使用者自行承担。
 3. **与上述模型厂商无关**。各模型的输出由仓库作者驱动并采纳，与 Anthropic、Moonshot、智谱、DeepSeek、OpenAI 等公司无任何隶属、背书关系。
-4. **不喜勿喷**。Vibecoding 的产物难免有覆疵，欢迎提 Issue 指正，但请保持基本礼貌；看不惯 AI 写代码的话，右上角关了就是。
+4. **不喜勿喷**。Vibecoding 的产物难免有瑕疵，欢迎提 Issue 指正，但请保持基本礼貌；看不惯 AI 写代码的话，右上角关了就是。
+
+---
 
 ## 许可证
 
 与上游工程一致；字体授权见 `src/main/resources/META-INF/licenses/`。
+
+<br>
+
+<div align="center">
+
+**遇到问题？加群聊：737086340**
+
+</div>

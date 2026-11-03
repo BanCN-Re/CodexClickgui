@@ -64,6 +64,14 @@ public enum UiFont {
         return Baked.SCALES[chosen];
     }
 
+    /**
+     * Picks the baked scale that matches the game's GUI scale, so text drawn in GUI pixels
+     * lands 1:1 on screen instead of being upscaled by the GUI.
+     */
+    public static float useGuiScale() {
+        return useScale(Math.max(1.0f, Minecraft.getInstance().getWindow().getGuiScale()));
+    }
+
     public static float scale() {
         return Baked.SCALES[scaleIndex];
     }
@@ -127,7 +135,7 @@ public enum UiFont {
 
     /** The baked scales; a holder class because enum constructors cannot read the enum's own statics. */
     private static final class Baked {
-        static final float[] SCALES = {0.75f, 1.0f, 1.25f, 1.5f, 2.0f};
-        static final String[] KEYS = {"75", "100", "125", "150", "200"};
+        static final float[] SCALES = {0.75f, 1.0f, 1.25f, 1.5f, 2.0f, 3.0f, 4.0f};
+        static final String[] KEYS = {"75", "100", "125", "150", "200", "300", "400"};
     }
 }

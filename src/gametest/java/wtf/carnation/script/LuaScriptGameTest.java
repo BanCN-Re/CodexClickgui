@@ -10,7 +10,9 @@ import wtf.carnation.codex.CodexTools;
 import wtf.carnation.event.impl.network.ChatEvent;
 import wtf.carnation.module.Module;
 
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
+import java.nio.file.Path;
 
 public final class LuaScriptGameTest implements FabricClientGameTest {
     @Override
@@ -18,7 +20,24 @@ public final class LuaScriptGameTest implements FabricClientGameTest {
         context.waitForScreen(TitleScreen.class);
         LuaScriptManager manager = Client.instance.getLuaScriptManager();
         try {
-            check(manager.findLoaded("KillAura") != null, "Bundled KillAura.lua was not registered");
+            // The client no longer ships example scripts, so the test seeds its own.
+            Path scripts = Path.of("Carnation", "scripts");
+            Files.createDirectories(scripts);
+            Path killAuraFile = scripts.resolve("KillAura.lua");
+            Files.writeString(killAuraFile, """
+                    module:name("KillAura")
+                    module:category("Combat")
+                    module:description("Seeded game test script")
+                    local range = module:number("Range", 3.0, 1.0, 6.0, 0.1)
+                    module:onUpdate(function()
+                        if not api:isInGame() then return end
+                        local target = api:nearestLiving(range:getFloat(), false)
+                        if target ~= nil then api:lookAt(target) end
+                    end)
+                    """, StandardCharsets.UTF_8);
+            // The loader touches the client, so it has to run on the client thread.
+            String seeded = context.computeOnClient(mc -> manager.load(killAuraFile));
+            check(manager.findLoaded("KillAura") != null, "Seeded KillAura.lua was not registered: " + seeded);
             String source = """
                     module:name("LuaSmoke")
                     module:category("Misc")

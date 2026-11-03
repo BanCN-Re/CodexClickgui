@@ -40,7 +40,6 @@ public final class LuaScriptManager implements InstanceAccess {
     public void loadAll() {
         try {
             Files.createDirectories(directory);
-            installExample();
             try (Stream<Path> files = Files.list(directory)) {
                 for (Path file : files.filter(p -> p.getFileName().toString().endsWith(".lua")).sorted().toList()) {
                     try {
@@ -252,16 +251,6 @@ public final class LuaScriptManager implements InstanceAccess {
                     : "验证通过: " + module.getName() + " 在真实玩家 Tick 中保持运行，未检测到 Lua 错误";
             result.complete(status + "\n已恢复模块原状态: " + (previous ? "启用" : "关闭")
                     + "\n--- 验证期间日志 ---\n" + (log.isBlank() ? "（无新增日志）" : log));
-        }
-    }
-
-    private void installExample() throws IOException {
-        for (String name : new String[]{"KillAura.lua", "PacketLab.lua"}) {
-            Path example = directory.resolve(name);
-            if (Files.exists(example)) continue;
-            try (InputStream input = LuaScriptManager.class.getResourceAsStream("/assets/carnation/scripts/" + name)) {
-                if (input != null) Files.copy(input, example);
-            }
         }
     }
 

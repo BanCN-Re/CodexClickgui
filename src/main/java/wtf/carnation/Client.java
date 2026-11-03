@@ -42,6 +42,7 @@ public class Client implements InstanceAccess {
         eventManager.register(moduleManager);
         eventManager.register(luaScriptManager);
         eventManager.register(commandManager);
+        eventManager.register(wtf.carnation.utils.RotationManager.INSTANCE);
 
         configManager.loadAllConfig();
         logger.info("{} {} loaded with {} modules", name, ver, moduleManager.getModules().size());

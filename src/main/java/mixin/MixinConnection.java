@@ -11,15 +11,12 @@ import org.spongepowered.asm.mixin.injection.Inject;
 import org.spongepowered.asm.mixin.injection.ModifyVariable;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 import wtf.carnation.Client;
-import wtf.carnation.script.LuaPacketDispatcher;
+import wtf.carnation.event.PacketHook;
 
 /**
- * Packet-level Lua hooks for 26.3.
- *
- * <p>{@code Connection.sendPacket} is the single funnel every outbound packet passes through,
- * and {@code channelRead0} is the single inbound entry point. Both are intercepted before the
- * vanilla handling runs, so {@code on_packet_receive} can rewrite or cancel a packet and
- * {@code on_packet_send} can replace or drop it.</p>
+ * Packet funnel for 26.3: every outbound packet passes through {@code send/sendPacket}
+ * and every inbound packet through {@code channelRead0}. Direction comes from the packet
+ * type so the integrated server's own connection is ignored.
  */
 @Mixin(Connection.class)
 public class MixinConnection {
@@ -50,52 +47,51 @@ public class MixinConnection {
 
     @ModifyVariable(method = READ, at = @At("HEAD"), argsOnly = true, index = 2)
     private Packet<?> carnation$inboundPacket(Packet<?> packet) {
-        if (Client.instance == null || LuaPacketDispatcher.INSTANCE.muted()) return packet;
+        if (Client.instance == null) return packet;
         if (!flow(packet, PacketFlow.CLIENTBOUND)) return packet;
         try {
-            return LuaPacketDispatcher.INSTANCE.intercept(packet, false);
+            return PacketHook.dispatch(packet, false);
         } catch (Throwable failure) {
-            Client.logger.warn("Lua inbound hook failed", failure);
+            Client.logger.warn("Packet hook failed", failure);
             return packet;
         }
     }
 
     @Inject(method = READ, at = @At("HEAD"), cancellable = true)
     private void carnation$cancelInbound(ChannelHandlerContext context, Packet<?> packet, CallbackInfo ci) {
-        if (Client.instance == null || LuaPacketDispatcher.INSTANCE.muted()) return;
+        if (Client.instance == null) return;
         if (!flow(packet, PacketFlow.CLIENTBOUND)) return;
         try {
-            LuaPacketDispatcher.INSTANCE.intercept(packet, false);
-            if (LuaPacketDispatcher.INSTANCE.cancelled(packet)) ci.cancel();
+            PacketHook.dispatch(packet, false);
+            if (PacketHook.cancelled(packet)) ci.cancel();
         } catch (Throwable failure) {
-            Client.logger.warn("Lua inbound hook failed", failure);
+            Client.logger.warn("Packet hook failed", failure);
         }
     }
 
     private static Packet<?> outbound(Packet<?> packet) {
-        if (Client.instance == null || LuaPacketDispatcher.INSTANCE.muted()) return packet;
+        if (Client.instance == null) return packet;
         if (!flow(packet, PacketFlow.SERVERBOUND)) return packet;
         try {
-            return LuaPacketDispatcher.INSTANCE.intercept(packet, true);
+            return PacketHook.dispatch(packet, true);
         } catch (Throwable failure) {
-            Client.logger.warn("Lua outbound hook failed", failure);
+            Client.logger.warn("Packet hook failed", failure);
             return packet;
         }
     }
 
     private static boolean cancel(Packet<?> packet) {
-        if (Client.instance == null || LuaPacketDispatcher.INSTANCE.muted()) return false;
+        if (Client.instance == null) return false;
         if (!flow(packet, PacketFlow.SERVERBOUND)) return false;
         try {
-            LuaPacketDispatcher.INSTANCE.intercept(packet, true);
-            return LuaPacketDispatcher.INSTANCE.cancelled(packet);
+            PacketHook.dispatch(packet, true);
+            return PacketHook.cancelled(packet);
         } catch (Throwable failure) {
-            Client.logger.warn("Lua outbound hook failed", failure);
+            Client.logger.warn("Packet hook failed", failure);
             return false;
         }
     }
 
-    /** The integrated server shares the JVM, so direction must come from the packet type, not the hook. */
     private static boolean flow(Packet<?> packet, PacketFlow expected) {
         try {
             return packet.type() != null && packet.type().flow() == expected;
