@@ -3,71 +3,70 @@ package wtf.carnation.module.impl.movement;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
 import net.minecraft.world.InteractionHand;
+import net.minecraft.world.InteractionResult;
+import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.Items;
-import net.minecraft.world.level.block.state.BlockState;
+import net.minecraft.world.level.Level;
 import net.minecraft.world.phys.BlockHitResult;
 import net.minecraft.world.phys.HitResult;
 import net.minecraft.world.phys.shapes.VoxelShape;
 import wtf.carnation.event.EventTarget;
-import wtf.carnation.event.impl.UpdateEvent;
+import wtf.carnation.event.impl.movement.RunTickEvent;
 import wtf.carnation.module.Category;
 import wtf.carnation.module.Module;
 import wtf.carnation.module.value.impl.NumberValue;
 import wtf.carnation.utils.ChatUtil;
 
-/** Places a water bucket under the player while falling. */
+/**
+ * Port of Naven's {@code tech.naven.modules.impl.move.AutoMLG}.
+ *
+ * <p>The water is placed from the pre-tick (Naven waits for EventClick); the recycle path is
+ * kept and runs once the bucket has been used again.</p>
+ */
 public class AutoMLG extends Module {
     private final NumberValue distance = new NumberValue("Fall Distance", 3.0, 3.0, 15.0, 0.1);
 
-    private boolean rotating;
-    private boolean placeWater;
+    public boolean rotation = false;
     private BlockPos above;
-    private int originalSlot = -1;
+    private boolean placeWater = false;
+    private int originalSlot;
     private int timeout;
 
     public AutoMLG() {
-        super("AutoMLG", Category.MOVEMENT, "下落时自动放置水");
-    }
-
-    @Override
-    protected void onDisable() {
-        restoreSlot();
-        this.rotating = false;
-        this.placeWater = false;
-        this.above = null;
+        super("AutoMLG", Category.MOVEMENT, "Automatically places water when falling");
     }
 
     public static boolean isOnGround(double height) {
-        if (MinecraftAccess.level() == null || MinecraftAccess.player() == null) return false;
-        Iterable<VoxelShape> collisions = MinecraftAccess.level().getBlockCollisions(MinecraftAccess.player(),
-                MinecraftAccess.player().getBoundingBox().move(0.0, height, 0.0));
+        if (mc.player == null || mc.level == null) return false;
+        Iterable<VoxelShape> collisions = mc.level.getBlockCollisions(mc.player,
+                mc.player.getBoundingBox().move(0.0, height, 0.0));
         return collisions.iterator().hasNext();
     }
 
     @EventTarget
-    public void onUpdate(UpdateEvent event) {
-        if (mc.player == null || mc.level == null) return;
+    public void onPre(RunTickEvent e) {
+        if (!e.isPre() || mc.player == null) return;
+
         if (mc.player.fallDistance > this.distance.get()) {
-            if (this.rotating && isOnGround(mc.player.getDeltaMovement().y)) {
+            if (this.rotation && isOnGround(mc.player.getDeltaMovement().y)) {
                 this.placeWater = true;
             } else if (isOnGround(mc.player.getDeltaMovement().y * 2.0)) {
-                for (int slot = 0; slot < 9; slot++) {
-                    ItemStack item = mc.player.getInventory().getItem(slot);
-                    if (!item.isEmpty() && item.is(Items.WATER_BUCKET)) {
+                for (int i = 0; i < 9; i++) {
+                    ItemStack item = mc.player.getInventory().getItem(i);
+                    if (!item.isEmpty() && item.getItem() == Items.WATER_BUCKET) {
                         this.originalSlot = mc.player.getInventory().getSelectedSlot();
-                        mc.player.getInventory().setSelectedSlot(slot);
-                        this.rotating = true;
+                        mc.player.getInventory().setSelectedSlot(i);
+                        this.rotation = true;
                         this.timeout = 5;
-                        break;
                     }
                 }
             }
         }
 
-        if (--this.timeout == 0 && this.rotating) {
-            this.rotating = false;
-            ChatUtil.addChatMessage("AutoMLG: 放置水失败");
+        if (--this.timeout == 0 && this.rotation) {
+            this.rotation = false;
+            ChatUtil.addChatMessage("Failed to place water!");
         }
 
         if (this.placeWater) {
@@ -75,51 +74,27 @@ public class AutoMLG extends Module {
             if (mc.hitResult != null && mc.hitResult.getType() == HitResult.Type.BLOCK
                     && ((BlockHitResult) mc.hitResult).getDirection() == Direction.UP) {
                 this.above = ((BlockHitResult) mc.hitResult).getBlockPos().above();
-                useBucket();
+                this.useItem(mc.player, mc.level, InteractionHand.MAIN_HAND);
             } else {
-                ChatUtil.addChatMessage("AutoMLG: 放置水失败");
-                this.rotating = false;
+                ChatUtil.addChatMessage("Failed to place water!");
+                this.rotation = false;
             }
-            return;
-        }
-
-        if (this.above != null && mc.hitResult instanceof BlockHitResult hit) {
-            this.rotating = false;
-            if (hit.getBlockPos().above().equals(this.above)) {
-                useBucket();
-            } else {
-                ChatUtil.addChatMessage("AutoMLG: 移动导致水桶回收失败");
+        } else if (this.above != null) {
+            this.rotation = false;
+            if (mc.hitResult instanceof BlockHitResult hit) {
+                BlockPos target = hit.getBlockPos().above();
+                if (target.equals(this.above)) {
+                    this.useItem(mc.player, mc.level, InteractionHand.MAIN_HAND);
+                } else {
+                    ChatUtil.addChatMessage("Failed to recycle the water dues to moving!");
+                }
             }
-            restoreSlot();
+            mc.player.getInventory().setSelectedSlot(this.originalSlot);
             this.above = null;
         }
     }
 
-    private void useBucket() {
-        if (mc.gameMode == null || mc.player == null) return;
-        mc.gameMode.useItem(mc.player, InteractionHand.MAIN_HAND);
-        mc.player.swing(InteractionHand.MAIN_HAND, net.minecraft.world.item.component.SwingAnimation.DEFAULT, true);
-    }
-
-    private void restoreSlot() {
-        if (this.originalSlot >= 0 && mc.player != null) {
-            mc.player.getInventory().setSelectedSlot(this.originalSlot);
-        }
-        this.originalSlot = -1;
-    }
-
-    /** Small helper so the static check works without a client instance. */
-    static final class MinecraftAccess {
-        private static net.minecraft.client.Minecraft client() {
-            return net.minecraft.client.Minecraft.getInstance();
-        }
-
-        static net.minecraft.client.player.LocalPlayer player() {
-            return client().player;
-        }
-
-        static net.minecraft.client.multiplayer.ClientLevel level() {
-            return client().level;
-        }
+    public InteractionResult useItem(Player player, Level level, InteractionHand hand) {
+        return mc.gameMode.useItem(player, hand);
     }
 }

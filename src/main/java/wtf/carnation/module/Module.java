@@ -14,10 +14,6 @@ import java.util.List;
 @Setter
 public class Module {
     protected static final Minecraft mc = Minecraft.getInstance();
-    /** Last module toggled, used by the Island HUD. */
-    public static Module lastToggled;
-    public static long lastToggledAt;
-    public static boolean lastToggledState;
     private final String name;
     private final Category category;
     /** One line shown under the module name in the GUI. */
@@ -46,9 +42,6 @@ public class Module {
         if (this.enabled == enabled) return;
         this.enabled = enabled;
         try {
-            lastToggled = this;
-            lastToggledAt = System.currentTimeMillis();
-            lastToggledState = enabled;
             if (enabled) {
                 Client.instance.getEventManager().register(this);
                 playToggleSound(true);
@@ -58,9 +51,43 @@ public class Module {
                 playToggleSound(false);
                 onDisable();
             }
+            // Like Naven: every toggle gets a toast, except the ClickGUI's own momentary action.
+            // The HUD's Notification switch decides whether the toasts are drawn.
+            if (!this.isMomentaryAction() && Client.instance != null) {
+                Client.instance.getNotificationManager().addNotification(
+                        new wtf.carnation.notification.Notification(
+                                enabled ? wtf.carnation.notification.NotificationLevel.SUCCESS
+                                        : wtf.carnation.notification.NotificationLevel.ERROR,
+                                this.name + (enabled ? " Enabled!" : " Disabled!"), 3000L));
+                // The HUD caches its sorted module list; a toggle re-sorts it.
+                arrayListDirty = true;
+            }
         } catch (Exception e) {
             e.printStackTrace(System.err);
         }
+    }
+
+    /** Set when a module toggles, so the HUD's ArrayList rebuilds its sort order. */
+    public static boolean arrayListDirty = true;
+
+    /**
+     * Naven's {@code Module.getPrettyName}: CamelCase split into words.
+     *
+     * <p>{@code AutoClicker} becomes {@code Auto Clicker}, so the ArrayList can show spaced names
+     * instead of the identifiers the commands use.</p>
+     */
+    public String getPrettyName() {
+        if (this.name.isEmpty()) return this.name;
+        StringBuilder builder = new StringBuilder(this.name.length() + 4);
+        char[] chars = this.name.toCharArray();
+        for (int i = 0; i < chars.length - 1; i++) {
+            builder.append(chars[i]);
+            if (Character.isLowerCase(chars[i]) && Character.isUpperCase(chars[i + 1])) {
+                builder.append(' ');
+            }
+        }
+        builder.append(chars[chars.length - 1]);
+        return builder.toString();
     }
 
     public void toggle() {

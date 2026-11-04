@@ -23,6 +23,14 @@ public final class Vector2f {
         this.y = y;
     }
 
+    public void setX(float x) {
+        this.x = x;
+    }
+
+    public void setY(float y) {
+        this.y = y;
+    }
+
     public Vector2f copy() {
         return new Vector2f(x, y);
     }

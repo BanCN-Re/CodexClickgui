@@ -4,6 +4,7 @@ import lombok.Getter;
 import wtf.carnation.event.EventTarget;
 import wtf.carnation.event.impl.network.ChatEvent;
 import wtf.carnation.manager.command.impl.CommandBind;
+import wtf.carnation.manager.command.impl.CommandBoot;
 import wtf.carnation.manager.command.impl.CommandConfig;
 import wtf.carnation.manager.command.impl.CommandHelp;
 import wtf.carnation.manager.command.impl.CommandLua;
@@ -30,6 +31,7 @@ public class CommandManager {
         registerCommand(new CommandModule());
         registerCommand(new CommandConfig());
         registerCommand(new CommandLua());
+        registerCommand(new CommandBoot());
         registerCommand(new CommandHelp());
     }
 

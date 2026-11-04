@@ -20,6 +20,7 @@ public class MixinLocalPlayer {
     private void carnation$tickPre(CallbackInfo ci) {
         if (Client.instance == null) return;
         Client.instance.getEventManager().call(new UpdateEvent());
+        Client.instance.getEventManager().call(new wtf.carnation.event.impl.movement.EventSprint());
         Client.instance.getEventManager().call(new MotionEvent(Phase.PRE));
     }
 
@@ -39,6 +40,7 @@ public class MixinLocalPlayer {
     @Inject(method = "isSlowDueToUsingItem", at = @At("HEAD"), cancellable = true)
     private void carnation$noSlowFlag(CallbackInfoReturnable<Boolean> cir) {
         if (Client.instance == null) return;
+        Client.instance.getEventManager().call(new wtf.carnation.event.impl.movement.EventSlowdown(true));
         NoSlow noSlow = Client.instance.getModuleManager().getModule(NoSlow.class);
         if (noSlow != null && noSlow.isEnabled() && noSlow.shouldCancelSlowdown()) {
             cir.setReturnValue(false);

@@ -19,92 +19,163 @@ import wtf.carnation.module.value.impl.NumberValue;
 
 import java.util.ArrayList;
 import java.util.EnumMap;
+import java.util.IdentityHashMap;
 import java.util.List;
 import java.util.Map;
 
 /**
- * Port of Naven's ClickGUI.
+ * One-to-one port of NeoNaven's {@code tech.naven.ui.ClickGUI}.
  *
- * <p>Everything below mirrors {@code awa.qwq.ovo.Naven.ui.ClickGUI}: the 400x250 glassy
- * window, the 100-wide category column with its icons, the 120x25 module rows in the theme
- * blue, the settings column that starts at x+140 and the smooth timers that drive the
- * expand/collapse and hover transitions.</p>
+ * <p>Field names, geometry, draw order and input flow are the original's; only the API
+ * surface is translated: {@code RenderUtils.drawRoundedRect} → {@link Render2D#roundedRect},
+ * {@code SmoothAnimationTimer} → {@link Smooth} (same linear step from {@code AnimationUtils}),
+ * {@code opensans.render(..., scale)} → {@link UiFont} baked sizes, and Naven's value classes
+ * → the client's {@link Value} subclasses.</p>
+ *
+ * <p>Two constants differ, both forced: the collapsed window height is
+ * {@code 40 + categories * 25} (Naven's 4 categories give the same 140; this client has 6
+ * categories and collapses to 190), and the window background is one translucent black layer
+ * compositing Naven's two stacked ones, because 26.3 has no GUI blur hook.</p>
  */
 public class NavenScreen extends Screen {
 
-    private static final float WINDOW_W = 400, WINDOW_H = 250;
-    private static final float COLLAPSED_W = 100, COLLAPSED_H = 185;
-    private static final float MODULE_W = 120, MODULE_H = 25, MODULE_GAP = 5;
-    private static final float PANEL_X = 140, PANEL_W = WINDOW_W - 155;
+    // ---- original fields ----------------------------------------------------------------------
 
-    private static final int ACCENT = 0xFF3662EC;
-    private static final int ROW_OFF = 0xFF191919;
-    private static final int TEXT = 0xFFFFFFFF;
-    /** Dark, nearly opaque panel — this is how the original reads on screen. */
-    private static final int WINDOW_BG = 0xF01A1A22;
+    public static float windowX = 100.0F;
+    public static float windowY = 100.0F;
+    public static float windowWidth = 400.0F;
+    public static float windowHeight = 250.0F;
+    Category selectedCategory = null;
+    Module selectedModule = null;
+    /**
+     * Drag/resize origin, in GUI pixels.
+     *
+     * <p>Naven keeps this as an {@code int[]} because its {@code mouseX/mouseY} are {@code int}.
+     * Here the mouse position is a {@code float} (26.3 hands the screen fractional GUI coordinates),
+     * so truncating the origin made every drag step drop the fractional part of the delta and the
+     * window crept downwards even while the cursor was still. It is a {@code double[]} for the same
+     * reason the position is floating point.</p>
+     */
+    double[] dragMousePosition = new double[]{-1, -1};
+    boolean hoveringBack = false;
+    Smooth widthAnimation = new Smooth(100.0F);
+    Smooth heightAnimation = new Smooth(collapsedH());
+    Smooth titleAnimation = new Smooth(100.0F);
+    Smooth titleHoverAnimation = new Smooth(0.0F);
+    Smooth categoryMotionY = new Smooth(0.0F);
+    Smooth moduleValuesMotionY = new Smooth(0.0F);
+    Map<Category, Smooth> categoryXAnimation = new EnumMap<>(Category.class);
+    Map<Category, Smooth> categoryYAnimation = new EnumMap<>(Category.class);
+    Map<Module, Smooth> modulesAnimation = new IdentityHashMap<>();
+    Map<Module, Smooth> modulesToggleAnimation = new IdentityHashMap<>();
+    Map<Value<?>, Smooth> valuesAnimation = new IdentityHashMap<>();
+    String titleDisplayName = "";
+    float finalModuleHeight;
+    float finalValueHeight;
+    boolean clickReturnModules = false;
+    boolean clickReturnCategories = false;
+    boolean clickOpenCategoryModules = false;
+    boolean clickResizeWindow = false;
+    boolean clickDragWindow = false;
+    Category hoveringCategory = null;
+    Module hoveringModule = null;
+    Module bindingModule = null;
+    Smooth moduleSwapAnimation = new Smooth(0.0F);
+    Smooth bindingAnimation = new Smooth(0.0F);
+    List<Module> categoryModules;
+    List<Value<?>> renderValues;
+    BoolValue hoveringBooleanValue;
+    NumberValue hoveringFloatValue;
+    NumberValue draggingFloatValue;
+    ModeValue hoveringModeValue;
+    int targetModeValueIndex;
+    String bindingModuleName = "";
+    private boolean mouseDown = false;
+    private float minCatY = 0.0F;
+    private Smooth moduleAlphaAnimation = new Smooth(0.0F);
+    private long moduleAlphaTimer = 0L;
+    private float minValueY = 0.0F;
+    private Smooth valuesAlphaAnimation = new Smooth(0.0F);
+    private long valuesAlphaTimer = 0L;
 
-    private record Hit(float x, float y, float w, float h, Runnable left, Runnable right, Module module) {
+    // ---- frame state --------------------------------------------------------------------------
+
+    private float mouseX, mouseY;
+    private float deltaMs = 16.7F;
+    private long lastFrameNanos;
+    private final List<Hit> hits = new ArrayList<>();
+    private boolean hasInputPosition;
+
+    /** A clickable area registered while drawing; resolved back-to-front against the event position. */
+    private record Hit(float x, float y, float w, float h, Runnable left, Runnable right, Runnable middle) {
         boolean contains(float px, float py) {
             return px >= x && py >= y && px < x + w && py < y + h;
         }
     }
 
-    /** Same easing as Naven's SmoothAnimationTimer. */
-    private static final class Smooth {
-        float value;
-        float target;
+    /** Naven with 4 categories collapses to 140; keep the same header + 25px row pitch. */
+    private static float collapsedH() {
+        return 40.0F + Category.values().length * 25.0F;
+    }
 
-        Smooth(float value) {
+    /** Naven's SmoothAnimationTimer: value steps by {@code delta * max(10, |diff|*40) * speed / 1000}. */
+    static final class Smooth {
+        float target;
+        float speed = 0.4F;
+        float value;
+        private float deltaMs = 16.7F;
+
+        Smooth(float target) {
+            this.target = target;
+            this.value = target;
+        }
+
+        Smooth(float target, float value) {
+            this.target = target;
             this.value = value;
-            this.target = value;
         }
 
         void update() {
-            float diff = target - value;
-            float step = Math.min(1.0F, 0.22F + Math.abs(diff) * 0.03F);
-            value += diff * step;
-            if (Math.abs(diff) < 0.5F) value = target;
+            float step = Math.max(10.0F, Math.abs(value - target) * 40.0F) * speed;
+            float add = deltaMs * (step / 1000.0F);
+            if (value < target) {
+                value = Math.min(value + add, target);
+            } else {
+                value = Math.max(value - add, target);
+            }
         }
     }
 
-    private final List<Hit> hits = new ArrayList<>();
-    private final Map<Category, Smooth> categoryAlpha = new EnumMap<>(Category.class);
-    private final Map<Category, Smooth> categoryShift = new EnumMap<>(Category.class);
-    private final Map<Module, Smooth> moduleHover = new java.util.IdentityHashMap<>();
-    private final Map<Module, Smooth> moduleToggle = new java.util.IdentityHashMap<>();
-
-    private final Smooth widthAnim = new Smooth(COLLAPSED_W);
-    private final Smooth heightAnim = new Smooth(COLLAPSED_H);
-    private final Smooth titleAnim = new Smooth(4);
-    private final Smooth titleShift = new Smooth(0);
-    private final Smooth moduleSwap = new Smooth(5);
-    private final Smooth valueAnim = new Smooth(0);
-
-    private float winX = 100, winY = 100;
-    private float windowW = WINDOW_W, windowH = WINDOW_H;
-    private Category selected;
-    private Module selectedModule;
-    private Module bindingModule;
-    private boolean resizing;
-    private float resizeStartW, resizeStartH;
-    private float moduleScroll, valueScroll;
-    private float dragOffsetX, dragOffsetY;
-    private boolean dragging;
-    private NumberValue draggingValue;
-    private float sliderX, sliderW;
-    private float mouseX, mouseY;
-
     public NavenScreen() {
         super(Component.literal("Naven"));
-        for (Category category : Category.values()) {
-            categoryAlpha.put(category, new Smooth(255));
-            categoryShift.put(category, new Smooth(0));
+        for (Category value : Category.values()) {
+            categoryXAnimation.put(value, new Smooth(0.0F));
+            categoryYAnimation.put(value, new Smooth(0.0F));
         }
     }
 
     @Override
     public boolean isPauseScreen() {
         return false;
+    }
+
+    @Override
+    protected void init() {
+        // Naven's init(): mode values replay their enable animation when the screen opens.
+        if (Client.instance == null) return;
+        for (Category category : Category.values()) {
+            for (Module module : Client.instance.getModuleManager().getModulesByCategory(category)) {
+                modulesAnimation.computeIfAbsent(module, m -> new Smooth(0.0F, 255.0F));
+                modulesToggleAnimation.computeIfAbsent(module, m -> new Smooth(0.0F));
+                for (Value<?> value : module.getValues()) {
+                    if (value instanceof ModeValue) {
+                        Smooth animation = valuesAnimation.computeIfAbsent(value, v -> new Smooth(0.0F));
+                        animation.value = 0.0F;
+                        animation.target = 255.0F;
+                    }
+                }
+            }
+        }
     }
 
     @Override
@@ -119,291 +190,596 @@ public class NavenScreen extends Screen {
 
     // ---- frame --------------------------------------------------------------------------------
 
+    /** Translation of Naven's {@code render(GuiGraphics, mouseX, mouseY, partialTick)}. */
     @Override
     public void extractRenderState(GuiGraphicsExtractor g, int guiMouseX, int guiMouseY, float partialTick) {
         super.extractRenderState(g, guiMouseX, guiMouseY, partialTick);
+
+        long now = System.nanoTime();
+        if (lastFrameNanos != 0L) {
+            deltaMs = Math.min(50.0F, (now - lastFrameNanos) / 1.0e6F);
+        }
+        lastFrameNanos = now;
+        for (Smooth animation : allAnimations()) animation.deltaMs = deltaMs;
+
+        if (!this.hasInputPosition) {
+            this.mouseX = guiMouseX;
+            this.mouseY = guiMouseY;
+        }
+        this.hits.clear();
+        this.hoveringModule = null;
+        this.clickReturnModules = this.clickReturnCategories = this.clickOpenCategoryModules = false;
         UiFont.useGuiScale();
-        mouseX = guiMouseX;
-        mouseY = guiMouseY;
-        hits.clear();
 
-        boolean open = selected != null;
-        widthAnim.target = open ? windowW : COLLAPSED_W;
-        heightAnim.target = open ? windowH : COLLAPSED_H;
-        widthAnim.update();
-        heightAnim.update();
-        titleAnim.target = open ? 255 : 4;
-        titleAnim.update();
-        titleShift.update();
-        moduleSwap.target = open ? 255 : 5;
-        moduleSwap.update();
-        valueAnim.target = selectedModule != null ? 255 : 0;
-        valueAnim.update();
-
-        drawWindow(g);
-    }
-
-    private void drawWindow(GuiGraphicsExtractor g) {
-        float width = widthAnim.value;
-        float height = heightAnim.value;
-
-        // glassy window: a dark panel like the original
-        Render2D.roundedRect(g, winX, winY, width, height, 5, WINDOW_BG);
-
-        // drag area (header)
-        addHit(winX, winY, width, open() ? 25 : 40, () -> {
-            dragging = true;
-            dragOffsetX = mouseX - winX;
-            dragOffsetY = mouseY - winY;
-        }, null);
-
-        // title / breadcrumb
-        if (!open()) {
-            int alpha = (int) (255 - titleAnim.value);
-            UiFont.Z_BOLD.drawCentered(g, "Naven", winX + COLLAPSED_W / 2, winY + 12,
-                    (alpha << 24) | (TEXT & 0xFFFFFF));
+        if (this.selectedCategory == null) {
+            this.widthAnimation.target = 100.0F;
+            this.heightAnimation.target = collapsedH();
         } else {
-            String title = "< " + selected.getName()
-                    + (selectedModule != null ? " / " + selectedModule.getName()
-                    + " - " + selectedModule.getDescription() : "");
-            int alpha = (int) titleAnim.value;
-            UiFont.Z_SMALL.drawMiddle(g, title, winX + 6 + titleShift.value, winY + 11,
-                    (alpha << 24) | (TEXT & 0xFFFFFF));
-            addHit(winX + 6, winY + 3, UiFont.Z_SMALL.width(title) + 6, 18,
-                    () -> {
-                        if (selectedModule != null) selectedModule = null;
-                        else selected = null;
-                    }, null);
+            this.widthAnimation.target = windowWidth;
+            this.heightAnimation.target = windowHeight;
+        }
+        this.widthAnimation.update();
+        this.heightAnimation.update();
+
+        Render2D.shadow(g, windowX, windowY, this.widthAnimation.value, this.heightAnimation.value, 5.0F,
+                24.0F, 6.0F, 0x60000000);
+        Render2D.roundedRect(g, windowX, windowY, this.widthAnimation.value, this.heightAnimation.value, 5.0F,
+                Colors.getColor(0, 0, 0, 94));
+
+        if (this.selectedCategory == null) {
+            this.hit(windowX, windowY, 100.0F, 40.0F, this::beginWindowDrag, null, null);
+        } else {
+            this.hit(windowX, windowY, windowWidth, 25.0F, this::beginWindowDrag, null, null);
         }
 
-        // categories
-        for (Category category : Category.values()) {
-            Smooth alphaAnim = categoryAlpha.get(category);
-            Smooth shiftAnim = categoryShift.get(category);
-            alphaAnim.target = open() ? 0 : 255;
-            alphaAnim.update();
-            shiftAnim.update();
-
-            float offset = category.ordinal() * 25 * (alphaAnim.value / 255.0F);
-            float y = winY + 41 + offset;
-            if (alphaAnim.value > 1) {
-                int color = ((int) alphaAnim.value << 24) | (TEXT & 0xFFFFFF);
-                UiFont.ICON_S.icon(g, iconOf(category), winX + 13 + shiftAnim.value, y, color);
-                UiFont.Z_SMALL.drawMiddle(g, category.getName(), winX + 25 + shiftAnim.value, y, color);
+        for (Category value : Category.values()) {
+            Smooth xAnimation = this.categoryXAnimation.get(value);
+            Smooth yAnimation = this.categoryYAnimation.get(value);
+            if (this.selectedCategory == null) {
+                yAnimation.target = 255.0F;
+            } else {
+                yAnimation.target = 0.0F;
             }
-            boolean hover = !open() && inside(mouseX, mouseY, winX, y - 10, COLLAPSED_W, 20);
-            shiftAnim.target = hover ? 5 : 0;
-            if (hover && alphaAnim.value > 200) {
-                addHit(winX, y - 10, COLLAPSED_W, 20, () -> selected = category, null);
-            }
-        }
+            xAnimation.update();
+            yAnimation.update();
 
-        if (open()) {
-            // the module list and the values column are clipped to the window body
-            g.enableScissor((int) winX, (int) (winY + 20), (int) (winX + width), (int) (winY + height));
-            drawModules(g);
-            if (selectedModule != null) drawValues(g);
-            g.disableScissor();
-
-            // resize grip in the bottom-right corner, as in Naven (invisible, like the original)
-            float gripX = winX + width - 10, gripY = winY + height - 10;
-            addHit(gripX, gripY, 10, 10, () -> {
-                resizing = true;
-                resizeStartW = windowW;
-                resizeStartH = windowH;
-            }, null);
-        }
-    }
-
-    private void drawModules(GuiGraphicsExtractor g) {
-        List<Module> modules = Client.instance.getModuleManager().getModulesByCategory(selected);
-        float listTop = winY + 20;
-        float listHeight = windowH - 25;
-        float content = modules.size() * (MODULE_H + MODULE_GAP);
-        moduleScroll = clamp(moduleScroll, 0, Math.max(0, content - listHeight));
-        int listAlpha = (int) moduleSwap.value;
-
-        for (int i = 0; i < modules.size(); i++) {
-            Module module = modules.get(i);
-            Smooth toggle = moduleToggle.computeIfAbsent(module, m -> new Smooth(6));
-            Smooth hover = moduleHover.computeIfAbsent(module, m -> new Smooth(5));
-            toggle.target = module.isEnabled() ? moduleSwap.value : 6;
-            toggle.update();
-
-            float y = listTop + i * (MODULE_H + MODULE_GAP) - moduleScroll;
-            if (y + MODULE_H < listTop || y > listTop + listHeight) continue;
-
-            boolean isHover = inside(mouseX, mouseY, winX + 5, y, MODULE_W, MODULE_H);
-            hover.target = isHover ? 150 : 5;
-            hover.update();
-
-            Render2D.roundedRect(g, winX + 5, y, MODULE_W, MODULE_H, 5,
-                    (listAlpha << 24) | (ROW_OFF & 0xFFFFFF));
-            Render2D.roundedRect(g, winX + 5, y, MODULE_W, MODULE_H, 5,
-                    ((int) toggle.value << 24) | (ACCENT & 0xFFFFFF));
-            if (hover.value > 1) {
-                Render2D.roundedRect(g, winX + 5, y, MODULE_W, MODULE_H, 5,
-                        ((int) (hover.value / 3) << 24) | 0xFFFFFF);
+            float height = (float) (value.ordinal() * 25) * (yAnimation.value / 255.0F);
+            if (yAnimation.target >= 4.0F) {
+                int color = ((int) yAnimation.value << 24) | 0xFFFFFF;
+                UiFont.Z_ICON_XS.icon(g, iconOf(value), windowX + 14.0F + xAnimation.value,
+                        windowY + 47.0F + height, color);
+                UiFont.Z_SMALL.drawMiddle(g, value.getName(), windowX + 25.0F + xAnimation.value,
+                        windowY + 47.0F + height, color);
             }
 
-            UiFont.Z_SMALL.drawMiddle(g, module.getName(), winX + 13, y + MODULE_H / 2,
-                    (listAlpha << 24) | (TEXT & 0xFFFFFF));
+            boolean hovering = mouseX >= windowX && mouseY >= windowY + 40.0F + height
+                    && mouseX < windowX + 100.0F && mouseY < windowY + 40.0F + height + 20.0F;
+            xAnimation.target = hovering ? 5.0F : 0.0F;
 
-            Module target = module;
-            addHit(winX + 5, y, MODULE_W, MODULE_H, target::toggle,
-                    () -> selectedModule = target == selectedModule ? null : target, target);
-        }
-
-        if (content > listHeight) {
-            float ratio = listHeight / content;
-            float barHeight = Math.max(20, listHeight * ratio);
-            float position = (moduleScroll / (content - listHeight)) * (listHeight - barHeight);
-            Render2D.roundedRect(g, winX + 127, listTop + position, 3, barHeight, 1.5f, 0xFF37303C);
-        }
-    }
-
-    private void drawValues(GuiGraphicsExtractor g) {
-        List<Value<?>> values = new ArrayList<>();
-        for (Value<?> value : selectedModule.getValues()) {
-            if (value.isAvailable()) values.add(value);
-        }
-        if (values.isEmpty()) return;
-
-        float panelWidth = windowW - 155;
-        float x0 = winX + PANEL_X;
-        float y = winY + 20 + valueScroll;
-        float bottom = winY + windowH - 5;
-
-        // booleans as chips
-        float chipX = 0;
-        for (Value<?> value : values) {
-            if (!(value instanceof BoolValue bool)) continue;
-            float labelWidth = UiFont.Z_SMALL.width(value.getName()) + 23;
-            if (chipX + labelWidth > panelWidth) {
-                chipX = 0;
-                y += 20;
+            if (yAnimation.value >= 250.0F && hovering) {
+                this.hoveringCategory = value;
+                this.clickOpenCategoryModules = true;
             }
-            if (y + 13 > bottom) break;
-            Render2D.roundedRect(g, x0 + chipX, y, 12, 12, 2, 0x96000000);
-            if (bool.get()) Render2D.roundedRect(g, x0 + chipX + 2, y + 2, 8, 8, 2, ACCENT);
-            UiFont.Z_SMALL.drawMiddle(g, value.getName(), x0 + chipX + 15, y + 6, TEXT);
-            addHit(x0 + chipX, y, labelWidth, 13, bool::toggle, null);
-            chipX += labelWidth;
-        }
-        y += 22;
 
-        // floats
-        for (Value<?> value : values) {
-            if (!(value instanceof NumberValue number)) continue;
-            if (y + 25 > bottom) break;
-            UiFont.Z_SMALL.drawMiddle(g, value.getName(), x0, y + 8, TEXT);
-            String text = number.getDisplayValue() + " / " + trim(number.getMax());
-            UiFont.Z_SMALL.drawRight(g, text, winX + windowW - 15, y + 8, TEXT);
-
-            float stage = (float) ((number.get() - number.getMin())
-                    / (number.getMax() - number.getMin()));
-            Render2D.roundedRect(g, x0, y + 18, panelWidth, 5, 3, 0x96000000);
-            Render2D.roundedRect(g, x0, y + 18, panelWidth * stage, 5, 3, ACCENT);
-            Render2D.circle(g, x0 + panelWidth * stage, y + 20.5f, 5, TEXT);
-
-            if (inside(mouseX, mouseY, x0, y + 16, panelWidth, 10)) {
-                draggingValue = number;
-                sliderX = x0;
-                sliderW = panelWidth;
+            if (yAnimation.value >= 250.0F) {
+                Category target = value;
+                this.hit(windowX, windowY + 40.0F + height, 100.0F, 20.0F, () -> {
+                    this.selectedCategory = target;
+                    this.categoryMotionY.value = this.categoryMotionY.target = 0.0F;
+                    this.moduleSwapAnimation.value = 5.0F;
+                    this.moduleSwapAnimation.target = 255.0F;
+                }, null, null);
             }
-            y += 25;
         }
 
-        // modes
-        for (Value<?> value : values) {
-            if (!(value instanceof ModeValue mode)) continue;
-            if (y + 20 > bottom) break;
-            UiFont.Z_SMALL.drawMiddle(g, value.getName(), x0, y + 8, TEXT);
-            y += 15;
-            float chipX2 = 0;
-            for (String option : mode.getModes()) {
-                float width = UiFont.Z_SMALL.width(option) + 20;
-                if (chipX2 + width > panelWidth) {
-                    chipX2 = 0;
-                    y += 20;
+        this.titleAnimation.update();
+        this.titleHoverAnimation.update();
+        if (this.titleAnimation.value > 5.0F) {
+            int alpha = (int) this.titleAnimation.value;
+            UiFont.Z_SMALL.drawMiddle(g, this.titleDisplayName, windowX + 6.0F + this.titleHoverAnimation.value,
+                    windowY + 10.0F, (alpha << 24) | 0xFFFFFF);
+        }
+
+        int brandAlpha = (int) (255.0F - this.titleAnimation.value);
+        if (brandAlpha > 0) {
+            UiFont.TITLE.drawCentered(g, "Naven", windowX + 50.0F, windowY + 17.0F,
+                    (brandAlpha << 24) | 0xFFFFFF);
+        }
+
+        if (this.selectedCategory != null) {
+            this.titleAnimation.target = 255.0F;
+            this.titleDisplayName = "< "
+                    + this.selectedCategory.getName()
+                    + (this.selectedModule != null ? " / " + this.selectedModule.getName()
+                    + " - " + this.selectedModule.getDescription() : "");
+            float titleWidth = UiFont.Z_SMALL.width(this.titleDisplayName);
+            this.hoveringBack = mouseX >= windowX + 8.0F && mouseY >= windowY + 5.0F
+                    && mouseX < windowX + 5.0F + titleWidth && mouseY < windowY + 5.0F + UiFont.Z_SMALL.size();
+            this.titleHoverAnimation.target = this.hoveringBack && !this.clickResizeWindow && !this.clickDragWindow
+                    ? -2.0F : 0.0F;
+
+            this.hit(windowX + 5.0F, windowY + 3.0F, titleWidth + 5.0F, 14.0F, () -> {
+                this.selectedCategory = null;
+                this.selectedModule = null;
+                this.renderValues = null;
+            }, null, null);
+
+            if (this.categoryMotionY.target < -this.finalModuleHeight) {
+                this.categoryMotionY.target = -this.finalModuleHeight;
+            }
+            if (this.categoryMotionY.target > 0.0F) {
+                this.categoryMotionY.target = 0.0F;
+            }
+            this.categoryMotionY.update();
+        } else {
+            this.titleAnimation.target = 4.0F;
+        }
+
+        float clipX = windowX;
+        float clipY = windowY + 20.0F;
+        float clipW = this.widthAnimation.value;
+        float clipH = Math.max(0.0F, this.heightAnimation.value - 20.0F);
+        g.enableScissor((int) Math.floor(clipX), (int) Math.floor(clipY),
+                (int) Math.ceil(clipX + clipW), (int) Math.ceil(clipY + clipH));
+
+        List<Module> inList = this.selectedCategory == null ? null
+                : Client.instance.getModuleManager().getModulesByCategory(this.selectedCategory);
+        if (inList != null) {
+            this.categoryModules = inList;
+            this.moduleSwapAnimation.target = 255.0F;
+        } else {
+            this.moduleSwapAnimation.target = 5.0F;
+        }
+        this.moduleSwapAnimation.update();
+        if (inList == null && this.moduleSwapAnimation.value < 8.0F) {
+            this.categoryModules = null;
+        }
+
+        if (this.categoryModules != null) {
+            float renderModuleHeight = 0.0F;
+            this.minCatY = windowHeight - 25.0F;
+
+            for (Module categoryModule : this.categoryModules) {
+                float rowY = windowY + 20.0F + renderModuleHeight + this.categoryMotionY.value;
+                boolean isHovering = mouseX >= windowX + 5.0F && mouseY >= windowY + 20.0F
+                        && mouseX < windowX + 125.0F && mouseY < windowY + 20.0F + (windowHeight - 25.0F)
+                        && mouseY >= rowY && mouseY < rowY + 25.0F
+                        && this.moduleSwapAnimation.value > 250.0F
+                        && this.bindingModule == null;
+
+                Smooth moduleToggleAnimation = this.modulesToggleAnimation
+                        .computeIfAbsent(categoryModule, m -> new Smooth(0.0F));
+                moduleToggleAnimation.target = categoryModule.isEnabled()
+                        ? this.moduleSwapAnimation.value : 6.0F;
+                moduleToggleAnimation.update();
+
+                int alpha = (int) this.moduleSwapAnimation.value;
+                int enabledColor = Colors.getColor(54, 98, 236, (int) moduleToggleAnimation.value);
+                int disabledColor = Colors.getColor(25, 25, 25, alpha);
+                Render2D.roundedRect(g, windowX + 5.0F, rowY, 120.0F, 25.0F, 5.0F, disabledColor);
+                Render2D.roundedRect(g, windowX + 5.0F, rowY, 120.0F, 25.0F, 5.0F, enabledColor);
+
+                Smooth moduleAnimation = this.modulesAnimation
+                        .computeIfAbsent(categoryModule, m -> new Smooth(0.0F, 255.0F));
+                if (isHovering) {
+                    moduleAnimation.target = 150.0F;
+                    this.hoveringModule = categoryModule;
+                } else {
+                    moduleAnimation.target = 5.0F;
                 }
-                if (y + 13 > bottom) break;
-                Render2D.roundedRect(g, x0 + chipX2, y + 2, 10, 10, 5, 0x96000000);
-                if (mode.is(option)) Render2D.roundedRect(g, x0 + chipX2 + 1, y + 3, 8, 8, 5, ACCENT);
-                UiFont.Z_SMALL.drawMiddle(g, option, x0 + chipX2 + 12, y + 7, TEXT);
-                addHit(x0 + chipX2, y, width, 13, () -> mode.set(option), null);
-                chipX2 += width;
+                moduleAnimation.update();
+
+                int hoveringColor = Colors.getColor(255, 255, 255, (int) moduleAnimation.value / 3);
+                Render2D.roundedRect(g, windowX + 5.0F, rowY, 120.0F, 25.0F, 5.0F, hoveringColor);
+
+                UiFont.Z_SMALL.drawMiddle(g, categoryModule.getName(), windowX + 13.0F, rowY + 12.5F,
+                        (alpha << 24) | 0xFFFFFF);
+
+                if (this.moduleSwapAnimation.value > 250.0F) {
+                    Module targetModule = categoryModule;
+                    this.hit(windowX + 5.0F, rowY, 120.0F, 25.0F, targetModule::toggle,
+                            () -> this.selectModule(targetModule), () -> this.bindingModule = targetModule);
+                }
+                renderModuleHeight += 30.0F;
             }
-            y += 20;
+
+            this.finalModuleHeight = renderModuleHeight + 20.0F - windowHeight;
+            this.minCatY -= renderModuleHeight - 5.0F;
+            float totalHeight = this.finalModuleHeight + windowHeight;
+            if (totalHeight > windowHeight - 25.0F) {
+                this.moduleAlphaAnimation.update();
+                if (System.currentTimeMillis() - this.moduleAlphaTimer >= 1000L) {
+                    this.moduleAlphaAnimation.target = 0.0F;
+                } else {
+                    this.moduleAlphaAnimation.target = 255.0F;
+                }
+
+                float viewable = windowHeight - 25.0F;
+                float progress = clamp(-this.categoryMotionY.value / -this.minCatY, 0.0F, 1.0F);
+                float ratio = viewable / totalHeight * viewable;
+                float barHeight = Math.max(ratio, 20.0F);
+                float position = progress * (viewable - barHeight);
+                Render2D.roundedRect(g, windowX + 127.0F, windowY + 20.0F + position, 3.0F, barHeight, 1.5F,
+                        RenderUtils.reAlpha(3630060, this.moduleAlphaAnimation.value / 255.0F));
+            }
         }
+
+        if (this.renderValues != null) {
+            boolean isValueInBound = mouseX >= windowX + 140.0F && mouseY >= windowY + 20.0F
+                    && mouseX < windowX + 140.0F + (windowWidth - 155.0F)
+                    && mouseY < windowY + 20.0F + (windowHeight - 25.0F);
+            float motion = this.moduleValuesMotionY.value;
+            if (this.moduleValuesMotionY.target < -this.finalValueHeight) {
+                this.moduleValuesMotionY.target = -this.finalValueHeight;
+            }
+            if (this.moduleValuesMotionY.target > 0.0F) {
+                this.moduleValuesMotionY.target = 0.0F;
+            }
+            this.moduleValuesMotionY.update();
+            float x = 0.0F;
+            float valueHeight = 0.0F;
+            this.minValueY = windowHeight - 25.0F;
+            this.hoveringBooleanValue = null;
+
+            for (Value<?> value : this.renderValues) {
+                if (value.isAvailable() && value instanceof BoolValue booleanValue) {
+                    Smooth animation = valuesAnimation.computeIfAbsent(booleanValue, v -> new Smooth(0.0F));
+                    animation.target = booleanValue.get() ? 255.0F : 0.0F;
+                    animation.update();
+
+                    float currentLength = UiFont.Z_SMALL.width(value.getName()) + 23.0F;
+                    if (x + currentLength + 20.0F > windowWidth - 155.0F) {
+                        x = 0.0F;
+                        valueHeight += 20.0F;
+                    }
+
+                    if (isValueInBound
+                            && mouseX >= windowX + 130.0F + x
+                            && mouseY >= windowY + valueHeight + motion + 20.0F
+                            && mouseX < windowX + 130.0F + x + currentLength
+                            && mouseY < windowY + valueHeight + motion + 33.0F) {
+                        this.hoveringBooleanValue = booleanValue;
+                    }
+
+                    int enabledColor = Colors.getColor(54, 98, 236, (int) animation.value);
+                    Render2D.roundedRect(g, windowX + 140.0F + x, windowY + valueHeight + motion + 20.0F,
+                            12.0F, 12.0F, 2.0F, Colors.getColor(0, 0, 0, 150));
+                    Render2D.roundedRect(g, windowX + 142.0F + x, windowY + valueHeight + motion + 22.0F,
+                            8.0F, 8.0F, 2.0F, enabledColor);
+                    UiFont.Z_SMALL.drawMiddle(g, value.getName(), windowX + 155.0F + x,
+                            windowY + valueHeight + motion + 26.0F, 0xFFFFFFFF);
+                    BoolValue targetBoolean = booleanValue;
+                    this.hit(windowX + 130.0F + x, windowY + valueHeight + motion + 20.0F, currentLength, 13.0F,
+                            targetBoolean::toggle, null, null);
+                    x += currentLength;
+                }
+            }
+
+            valueHeight += 10.0F;
+            this.hoveringFloatValue = null;
+
+            for (Value<?> valuex : this.renderValues) {
+                if (valuex.isAvailable() && valuex instanceof NumberValue floatValue) {
+                    Smooth animationx = valuesAnimation.computeIfAbsent(floatValue, v -> new Smooth(0.0F));
+                    if (isValueInBound
+                            && mouseX >= windowX + 140.0F
+                            && mouseY >= windowY + valueHeight + motion + 39.5F
+                            && mouseX < windowX + 140.0F + (windowWidth - 155.0F)
+                            && mouseY < windowY + valueHeight + motion + 49.5F) {
+                        this.hoveringFloatValue = floatValue;
+                    }
+
+                    UiFont.Z_SMALL.drawMiddle(g, valuex.getName(), windowX + 140.0F,
+                            windowY + valueHeight + motion + 31.0F, 0xFFFFFFFF);
+                    String currentValue = (float) Math.round(floatValue.get() * 100.0F) / 100.0F
+                            + " / " + trim(floatValue.getMax());
+                    UiFont.Z_SMALL.drawRight(g, currentValue, windowX + windowWidth - 15.0F,
+                            windowY + valueHeight + motion + 31.0F, 0xFFFFFFFF);
+                    float stage = (float) ((floatValue.get() - floatValue.getMin())
+                            / (floatValue.getMax() - floatValue.getMin()));
+                    int enabledColor = Colors.getColor(54, 98, 236, 255);
+                    Render2D.roundedRect(g, windowX + 140.0F, windowY + valueHeight + motion + 42.0F,
+                            windowWidth - 155.0F, 5.0F, 3.0F, Colors.getColor(0, 0, 0, 150));
+                    animationx.target = (windowWidth - 155.0F) * stage;
+                    animationx.update();
+                    Render2D.roundedRect(g, windowX + 140.0F, windowY + valueHeight + motion + 42.0F,
+                            animationx.value, 5.0F, 3.0F, enabledColor);
+                    Render2D.roundedRect(g, windowX + 135.0F + animationx.value,
+                            windowY + valueHeight + motion + 39.5F, 10.0F, 10.0F, 5.0F, 0xFFFFFFFF);
+                    NumberValue targetNumber = floatValue;
+                    this.hit(windowX + 140.0F, windowY + valueHeight + motion + 39.5F,
+                            windowWidth - 155.0F, 10.0F,
+                            () -> this.draggingFloatValue = targetNumber, null, null);
+                    valueHeight += 25.0F;
+                }
+            }
+
+            this.hoveringModeValue = null;
+
+            for (Value<?> valuexx : this.renderValues) {
+                if (valuexx.isAvailable() && valuexx instanceof ModeValue modeValue) {
+                    Smooth animationx = valuesAnimation.computeIfAbsent(modeValue, v -> new Smooth(0.0F));
+                    animationx.update();
+                    UiFont.Z_SMALL.drawMiddle(g, valuexx.getName(), windowX + 140.0F,
+                            windowY + valueHeight + motion + 31.0F, 0xFFFFFFFF);
+                    x = 0.0F;
+                    valueHeight += 15.0F;
+
+                    String[] modes = modeValue.getModes();
+                    for (int modeIndex = 0; modeIndex < modes.length; modeIndex++) {
+                        String mode = modes[modeIndex];
+                        float currentLengthx = UiFont.Z_SMALL.width(mode) + 20.0F;
+                        if (x + currentLengthx + 20.0F > windowWidth - 155.0F) {
+                            x = 0.0F;
+                            valueHeight += 20.0F;
+                        }
+
+                        if (isValueInBound
+                                && mouseX >= windowX + 140.0F + x
+                                && mouseY >= windowY + valueHeight + motion + 25.0F
+                                && mouseX < windowX + 140.0F + x + currentLengthx
+                                && mouseY < windowY + valueHeight + motion + 38.0F) {
+                            this.hoveringModeValue = modeValue;
+                            this.targetModeValueIndex = modeIndex;
+                        }
+
+                        int enabledColor = Colors.getColor(54, 98, 236,
+                                modeValue.is(mode) ? (int) animationx.value : 10);
+                        Render2D.roundedRect(g, windowX + 140.0F + x, windowY + valueHeight + motion + 27.0F,
+                                10.0F, 10.0F, 5.0F, Colors.getColor(0, 0, 0, 150));
+                        Render2D.roundedRect(g, windowX + 141.0F + x, windowY + valueHeight + motion + 28.0F,
+                                8.0F, 8.0F, 5.0F, enabledColor);
+                        UiFont.Z_SMALL.drawMiddle(g, mode, windowX + 152.0F + x,
+                                windowY + valueHeight + motion + 32.0F, 0xFFFFFFFF);
+                        ModeValue targetMode = modeValue;
+                        int targetIndex = modeIndex;
+                        this.hit(windowX + 140.0F + x, windowY + valueHeight + motion + 25.0F, currentLengthx, 13.0F,
+                                () -> {
+                                    targetMode.set(targetMode.getModes()[targetIndex]);
+                                    Smooth animation = valuesAnimation
+                                            .computeIfAbsent(targetMode, v -> new Smooth(0.0F));
+                                    animation.value = 0.0F;
+                                    animation.target = 255.0F;
+                                }, null, null);
+                        x += currentLengthx;
+                    }
+
+                    valueHeight += 20.0F;
+                }
+            }
+
+            this.finalValueHeight = valueHeight - windowHeight + 25.0F;
+            this.minValueY -= valueHeight;
+            float valTotalHeight = this.finalValueHeight + windowHeight;
+            if (valTotalHeight > windowHeight - 25.0F) {
+                this.valuesAlphaAnimation.update();
+                if (System.currentTimeMillis() - this.valuesAlphaTimer >= 1000L) {
+                    this.valuesAlphaAnimation.target = 0.0F;
+                } else {
+                    this.valuesAlphaAnimation.target = 255.0F;
+                }
+
+                float viewable = windowHeight - 25.0F;
+                float progress = clamp(-this.moduleValuesMotionY.value / -this.minValueY, 0.0F, 1.0F);
+                float ratio = viewable / valTotalHeight * viewable;
+                float barHeight = Math.max(ratio, 20.0F);
+                float position = progress * (viewable - barHeight);
+                Render2D.roundedRect(g, windowX + windowWidth - 8.0F, windowY + 20.0F + position,
+                        3.0F, barHeight, 1.5F,
+                        RenderUtils.reAlpha(3630060, this.valuesAlphaAnimation.value / 255.0F));
+            }
+        }
+
+        if (this.draggingFloatValue != null) {
+            float stage = (this.mouseX - windowX - 140.0F) / (windowWidth - 160.0F);
+            float valuexxx = (float) (this.draggingFloatValue.getMin()
+                    + (this.draggingFloatValue.getMax() - this.draggingFloatValue.getMin()) * stage);
+            if (valuexxx < this.draggingFloatValue.getMin()) {
+                valuexxx = (float) this.draggingFloatValue.getMin();
+            }
+            if (valuexxx > this.draggingFloatValue.getMax()) {
+                valuexxx = (float) this.draggingFloatValue.getMax();
+            }
+            this.draggingFloatValue.set((double) valuexxx);
+        }
+
+        if (this.clickDragWindow && this.mouseDown) {
+            windowX = (float) (windowX + (this.mouseX - this.dragMousePosition[0]));
+            windowY = (float) (windowY + (this.mouseY - this.dragMousePosition[1]));
+            this.SetDragPosition(this.mouseX, this.mouseY);
+        }
+
+        if (this.categoryModules != null && !this.hoveringBack && this.clickResizeWindow && this.mouseDown) {
+            windowWidth = (float) (windowWidth + (this.mouseX - this.dragMousePosition[0]));
+            windowHeight = (float) (windowHeight + (this.mouseY - this.dragMousePosition[1]));
+            if (windowWidth < 500.0F) {
+                windowWidth = 500.0F;
+            }
+            if (windowHeight < 300.0F) {
+                windowHeight = 300.0F;
+            }
+            this.SetDragPosition(this.mouseX, this.mouseY);
+        }
+
+        if (this.bindingModule != null) {
+            this.bindingAnimation.target = 250.0F;
+            this.bindingModuleName = this.bindingModule.getName();
+        } else {
+            this.bindingAnimation.target = 5.0F;
+        }
+
+        this.bindingAnimation.update();
+        if (this.bindingAnimation.value > 6.0F) {
+            int dim = (int) this.bindingAnimation.value;
+            Render2D.rect(g, windowX, windowY, this.widthAnimation.value, this.heightAnimation.value,
+                    Colors.getColor(0, 0, 0, dim / 2));
+            int alpha = (int) this.bindingAnimation.value;
+            String line1 = "Press a key to bind " + this.bindingModuleName;
+            String line2 = "(Press ESC to remove/cancel key bind)";
+            UiFont.BODY.drawCentered(g, line1, windowX + this.widthAnimation.value / 2.0F,
+                    windowY + this.heightAnimation.value / 2.0F - 10.0F, (alpha << 24) | 0xFFFFFF);
+            UiFont.Z_SMALL.drawCentered(g, line2, windowX + this.widthAnimation.value / 2.0F,
+                    windowY + this.heightAnimation.value / 2.0F + 15.0F, (alpha << 24) | 0xFFFFFF);
+        }
+
+        if (this.selectedCategory != null) {
+            this.hit(windowX + windowWidth - 10.0F, windowY + windowHeight - 10.0F, 10.0F, 10.0F, () -> {
+                this.SetDragPosition(this.mouseX, this.mouseY);
+                this.clickResizeWindow = true;
+            }, null, null);
+            UiFont.Z_ICON_XS.icon(g, Icons.SQUARE, windowX + this.widthAnimation.value - 5.0F,
+                    windowY + this.heightAnimation.value - 5.0F, 0x80FFFFFF);
+        }
+
+        g.disableScissor();
     }
 
     // ---- input --------------------------------------------------------------------------------
 
     @Override
-    public boolean mouseClicked(MouseButtonEvent event, boolean doubleClick) {
-        mouseX = (float) event.x();
-        mouseY = (float) event.y();
-        boolean right = event.button() == InputConstants.MOUSE_BUTTON_RIGHT;
-        for (int i = hits.size() - 1; i >= 0; i--) {
-            Hit hit = hits.get(i);
-            if (!hit.contains(mouseX, mouseY)) continue;
-            Runnable action = right ? hit.right : hit.left;
-            if (action == null) continue;
-            action.run();
-            return true;
-        }
-        return super.mouseClicked(event, doubleClick);
+    public void mouseMoved(double x, double y) {
+        this.mouseX = (float) x;
+        this.mouseY = (float) y;
+        this.hasInputPosition = true;
     }
 
     @Override
     public boolean mouseDragged(MouseButtonEvent event, double dragX, double dragY) {
-        mouseX = (float) event.x();
-        mouseY = (float) event.y();
-        if (dragging) {
-            winX = mouseX - dragOffsetX;
-            winY = mouseY - dragOffsetY;
+        this.mouseX = (float) event.x();
+        this.mouseY = (float) event.y();
+        this.hasInputPosition = true;
+        return true;
+    }
+
+    @Override
+    public boolean mouseClicked(MouseButtonEvent event, boolean doubleClick) {
+        this.mouseX = (float) event.x();
+        this.mouseY = (float) event.y();
+        this.hasInputPosition = true;
+        int mouseButton = event.button();
+        if (mouseButton == InputConstants.MOUSE_BUTTON_LEFT) {
+            this.mouseDown = true;
+        }
+
+        if (this.bindingModule != null) {
+            if (mouseButton == InputConstants.MOUSE_BUTTON_4 || mouseButton == InputConstants.MOUSE_BUTTON_5) {
+                this.bindingModule.setKey(-mouseButton);
+                this.bindingModule = null;
+            }
             return true;
         }
-        if (draggingValue != null) {
-            float ratio = (float) Math.max(0, Math.min(1, (mouseX - sliderX) / sliderW));
-            double min = draggingValue.getMin();
-            double max = draggingValue.getMax();
-            draggingValue.set(min + (max - min) * ratio);
-            return true;
+
+        // Resolve the click against the areas registered while drawing (back-to-front).
+        for (int i = this.hits.size() - 1; i >= 0; i--) {
+            Hit hit = this.hits.get(i);
+            if (!hit.contains(this.mouseX, this.mouseY)) continue;
+            Runnable action = mouseButton == InputConstants.MOUSE_BUTTON_LEFT ? hit.left
+                    : mouseButton == InputConstants.MOUSE_BUTTON_RIGHT ? hit.right
+                    : mouseButton == InputConstants.MOUSE_BUTTON_MIDDLE ? hit.middle : null;
+            if (action != null) {
+                action.run();
+                return true;
+            }
         }
-        return super.mouseDragged(event, dragX, dragY);
+        return true;
+    }
+
+    private void beginWindowDrag() {
+        this.SetDragPosition(this.mouseX, this.mouseY);
+        this.clickDragWindow = true;
+    }
+
+    private void selectModule(Module module) {
+        this.selectedModule = module;
+        this.renderValues = new ArrayList<>(module.getValues());
+        this.moduleValuesMotionY.target = this.moduleValuesMotionY.value = 0.0F;
+    }
+
+    private void hit(float x, float y, float w, float h, Runnable left, Runnable right, Runnable middle) {
+        this.hits.add(new Hit(x, y, w, h, left, right, middle));
     }
 
     @Override
     public boolean mouseReleased(MouseButtonEvent event) {
-        dragging = false;
-        draggingValue = null;
-        return super.mouseReleased(event);
-    }
-
-    @Override
-    public boolean mouseScrolled(double x, double y, double scrollX, double scrollY) {
-        if (open() && inside((float) x, (float) y, winX, winY + 20, WINDOW_W, WINDOW_H - 25)) {
-            moduleScroll = clamp(moduleScroll - (float) scrollY * 25, 0, Float.MAX_VALUE);
-            return true;
+        int pButton = event.button();
+        if (pButton == InputConstants.MOUSE_BUTTON_LEFT) {
+            this.mouseDown = false;
         }
-        return super.mouseScrolled(x, y, scrollX, scrollY);
+        if (this.clickResizeWindow) {
+            this.clickResizeWindow = false;
+            this.SetDragPosition(-1, -1);
+        }
+        if (this.clickDragWindow) {
+            this.clickDragWindow = false;
+            this.SetDragPosition(-1, -1);
+        }
+        if (this.draggingFloatValue != null) {
+            this.draggingFloatValue = null;
+        }
+        return true;
     }
 
     @Override
     public boolean keyPressed(KeyEvent event) {
-        if (event.key() == InputConstants.KEY_ESCAPE) {
-            minecraft.gui.setScreen(null);
-            return true;
+        if (this.bindingModule != null) {
+            int pKeyCode = event.key();
+            if (pKeyCode == InputConstants.KEY_ESCAPE) {
+                this.bindingModule.setKey(0);
+                this.bindingModule = null;
+                return true;
+            }
+            this.bindingModule.setKey(pKeyCode);
+            this.bindingModule = null;
         }
         return super.keyPressed(event);
     }
 
+    @Override
+    public boolean mouseScrolled(double pMouseX, double pMouseY, double pHorizontalDelta, double pDelta) {
+        if (this.bindingModule == null
+                && pMouseX >= windowX + 5.0F && pMouseY >= windowY + 20.0F
+                && pMouseX < windowX + 105.0F && pMouseY < windowY + 20.0F + (windowHeight - 5.0F)) {
+            this.categoryMotionY.target = (float) ((double) this.categoryMotionY.target + pDelta * 15.0);
+            this.moduleAlphaTimer = System.currentTimeMillis();
+        }
+
+        if (this.renderValues != null
+                && this.bindingModule == null
+                && pMouseX >= windowX + 140.0F && pMouseY >= windowY + 20.0F
+                && pMouseX < windowX + 140.0F + (windowWidth - 155.0F)
+                && pMouseY < windowY + 20.0F + (windowHeight - 25.0F)) {
+            this.moduleValuesMotionY.target = (float) ((double) this.moduleValuesMotionY.target + pDelta * 15.0);
+            this.valuesAlphaTimer = System.currentTimeMillis();
+        }
+
+        return true;
+    }
+
     // ---- helpers ------------------------------------------------------------------------------
 
-    private boolean open() {
-        return selected != null;
+    private Iterable<Smooth> allAnimations() {
+        List<Smooth> all = new ArrayList<>();
+        all.add(this.widthAnimation);
+        all.add(this.heightAnimation);
+        all.add(this.titleAnimation);
+        all.add(this.titleHoverAnimation);
+        all.add(this.categoryMotionY);
+        all.add(this.moduleValuesMotionY);
+        all.add(this.moduleSwapAnimation);
+        all.add(this.bindingAnimation);
+        all.add(this.moduleAlphaAnimation);
+        all.add(this.valuesAlphaAnimation);
+        all.addAll(this.categoryXAnimation.values());
+        all.addAll(this.categoryYAnimation.values());
+        all.addAll(this.modulesAnimation.values());
+        all.addAll(this.modulesToggleAnimation.values());
+        all.addAll(this.valuesAnimation.values());
+        return all;
+    }
+
+    public void SetDragPosition(double x, double y) {
+        this.dragMousePosition[0] = x;
+        this.dragMousePosition[1] = y;
     }
 
     private static char iconOf(Category category) {
@@ -417,10 +793,6 @@ public class NavenScreen extends Screen {
         };
     }
 
-    private static boolean inside(float px, float py, float x, float y, float w, float h) {
-        return px >= x && py >= y && px < x + w && py < y + h;
-    }
-
     private static float clamp(float value, float min, float max) {
         return Math.max(min, Math.min(max, value));
     }
@@ -429,11 +801,22 @@ public class NavenScreen extends Screen {
         return value == Math.rint(value) ? String.valueOf((long) value) : String.format("%.2f", value);
     }
 
-    private void addHit(float x, float y, float w, float h, Runnable left, Runnable right) {
-        hits.add(new Hit(x, y, w, h, left, right, null));
+    /** Naven's Colors.getColor, kept as a local helper. */
+    static final class Colors {
+        static int getColor(int red, int green, int blue, int alpha) {
+            int color = 0;
+            color |= alpha << 24;
+            color |= red << 16;
+            color |= green << 8;
+            return color | blue;
+        }
     }
 
-    private void addHit(float x, float y, float w, float h, Runnable left, Runnable right, Module module) {
-        hits.add(new Hit(x, y, w, h, left, right, module));
+    /** Naven's RenderUtils.reAlpha: the argument is RGB, the alpha comes from the factor. */
+    static final class RenderUtils {
+        static int reAlpha(int color, float alpha) {
+            int alphaChannel = Math.max(0, Math.min(255, (int) (alpha * 255.0F)));
+            return (alphaChannel << 24) | (color & 0xFFFFFF);
+        }
     }
 }

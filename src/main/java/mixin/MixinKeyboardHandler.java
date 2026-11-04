@@ -14,6 +14,7 @@ import wtf.carnation.Client;
 public class MixinKeyboardHandler {
     @Inject(method = "keyPress", at = @At("HEAD"))
     private void onKeyPress(long window, int action, KeyEvent keyEvent, CallbackInfo ci) {
+        if (action == InputConstants.PRESS) wtf.carnation.boot.RhineBoot.requestSkip();
         Minecraft mc = Minecraft.getInstance();
         if (Client.instance == null || window != mc.getWindow().handle() || mc.gui.screen() != null) return;
         if (keyEvent.key() <= 0 || action == InputConstants.REPEAT) return;

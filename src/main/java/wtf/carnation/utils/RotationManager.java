@@ -1,15 +1,25 @@
 package wtf.carnation.utils;
 
 import net.minecraft.client.Minecraft;
-import net.minecraft.network.protocol.Packet;
 import net.minecraft.network.protocol.game.ServerboundMovePlayerPacket;
 import wtf.carnation.Client;
 import wtf.carnation.event.EventTarget;
 import wtf.carnation.event.impl.movement.MoveInputEvent;
+import net.minecraft.network.protocol.game.ServerboundUseItemPacket;
+import wtf.carnation.event.impl.combat.EventRayTrace;
 import wtf.carnation.event.impl.movement.MotionEvent;
+import wtf.carnation.event.impl.movement.RunTickEvent;
 import wtf.carnation.event.impl.network.PacketEvent;
+import wtf.carnation.module.ModuleManager;
+import wtf.carnation.module.impl.combat.AimAssist;
+import wtf.carnation.module.impl.combat.AttackCrystal;
+import wtf.carnation.module.impl.combat.Aura;
+import wtf.carnation.module.impl.combat.AutoThrow;
+import wtf.carnation.module.impl.misc.Helper;
+import wtf.carnation.module.impl.movement.AutoMLG;
+import wtf.carnation.module.impl.movement.LongJump;
+import wtf.carnation.module.impl.movement.Scaffold;
 
-import java.lang.reflect.Field;
 
 /**
  * Holds the rotation the server should see and applies it to the player and the outbound
@@ -20,6 +30,7 @@ public final class RotationManager {
     public static final RotationManager INSTANCE = new RotationManager();
 
     private static Vector2f rotations;
+    private static Vector2f lastRotations;
     private static boolean active;
 
     private RotationManager() {
@@ -30,7 +41,11 @@ public final class RotationManager {
     }
 
     public static void setRotations(float yaw, float pitch) {
-        rotations = new Vector2f(yaw, pitch);
+        setRotations(new Vector2f(yaw, pitch));
+    }
+
+    public static Vector2f lastRotations() {
+        return lastRotations;
     }
 
     public static void clearRotations() {
@@ -50,13 +65,67 @@ public final class RotationManager {
         active = value;
     }
 
+    /**
+     * Bookkeeping only. The player's own yaw/pitch are never written here: that would drag the
+     * camera around and make every "silent" aim module visible. The aim reaches the server through
+     * the packet rewrite below and reaches the crosshair through {@link EventRayTrace}.
+     */
     @EventTarget
     public void onMotion(MotionEvent event) {
         if (!event.isPre()) return;
+        lastRotations = rotations;
+    }
+
+    /** Silent aim: substitute the rotation for the game's own view-vector raycast. */
+    @EventTarget
+    public void onRayTrace(EventRayTrace event) {
+        if (!active || rotations == null) return;
+        if (event.getEntity() != Minecraft.getInstance().player) return;
+        event.setYaw(rotations.x);
+        event.setPitch(rotations.y);
+    }
+
+    /**
+     * Per-tick arbitration, ported from Naven's {@code updateGlobalYaw}: whichever module owns the
+     * aim this tick publishes its rotation here. Without it the combat modules compute a rotation
+     * that nothing ever applies, so the crosshair never lands on the target and the attack packet
+     * never leaves.
+     */
+    @EventTarget
+    public void onRunTick(RunTickEvent event) {
         Minecraft mc = Minecraft.getInstance();
-        if (mc.player == null || rotations == null || !active) return;
-        mc.player.setYRot(rotations.x);
-        mc.player.setXRot(rotations.y);
+        if (!event.isPre() || mc.player == null || Client.instance == null) return;
+        ModuleManager modules = Client.instance.getModuleManager();
+
+        Aura aura = modules.getModule(Aura.class);
+        AttackCrystal crystal = modules.getModule(AttackCrystal.class);
+        AutoMLG autoMlg = modules.getModule(AutoMLG.class);
+        LongJump longJump = modules.getModule(LongJump.class);
+        Scaffold scaffold = modules.getModule(Scaffold.class);
+        Helper helper = modules.getModule(Helper.class);
+        AutoThrow autoThrow = modules.getModule(AutoThrow.class);
+        AimAssist aimAssist = modules.getModule(AimAssist.class);
+
+        active = true;
+        if (autoMlg != null && autoMlg.isEnabled() && autoMlg.rotation) {
+            setRotations(new Vector2f(mc.player.getYRot(), 90.0F));
+        } else if (longJump != null && longJump.isEnabled() && LongJump.rotation != null) {
+            setRotations(LongJump.rotation.toVector());
+        } else if (crystal != null && crystal.isEnabled() && AttackCrystal.rotations != null) {
+            setRotations(AttackCrystal.rotations);
+        } else if (scaffold != null && scaffold.isEnabled() && scaffold.rots != null) {
+            setRotations(scaffold.rots);
+        } else if (helper != null && helper.isEnabled() && helper.rotation != null) {
+            setRotations(helper.rotation);
+        } else if (autoThrow != null && autoThrow.isEnabled() && autoThrow.rotation != null) {
+            setRotations(autoThrow.rotation);
+        } else if (aura != null && aura.isEnabled() && Aura.target != null && Aura.rotation != null) {
+            setRotations(Aura.rotation);
+        } else if (aimAssist == null || !aimAssist.isEnabled() || !aimAssist.working) {
+            active = false;
+        } else if (aimAssist.silentAim()) {
+            setRotations(aimAssist.targetRotation);
+        }
     }
 
     @EventTarget
@@ -69,43 +138,20 @@ public final class RotationManager {
         event.setStrafe(fixed.x);
     }
 
-    /** Rewrites the rotation in the position packets so the server sees the same angles. */
+    /** Rewrites the rotation in every outbound packet that carries one. */
     @EventTarget
     public void onPacket(PacketEvent event) {
         if (!event.isSend() || rotations == null || !active) return;
-        if (!(event.getPacket() instanceof ServerboundMovePlayerPacket.PosRot packet)) return;
-        double x = read(packet, "x");
-        double y = read(packet, "y");
-        double z = read(packet, "z");
-        boolean onGround = readBool(packet, "onGround");
-        boolean collision = readBool(packet, "horizontalCollision");
-        event.setPacket(new ServerboundMovePlayerPacket.PosRot(
-                x, y, z, rotations.x, rotations.y, onGround, collision));
-    }
-
-    private static double read(Object target, String name) {
-        Object value = field(target, name);
-        return value instanceof Number n ? n.doubleValue() : 0;
-    }
-
-    private static boolean readBool(Object target, String name) {
-        Object value = field(target, name);
-        return value instanceof Boolean b && b;
-    }
-
-    private static Object field(Object target, String name) {
-        Class<?> type = target.getClass();
-        while (type != null && type != Object.class) {
-            try {
-                Field field = type.getDeclaredField(name);
-                field.setAccessible(true);
-                return field.get(target);
-            } catch (NoSuchFieldException ignored) {
-                type = type.getSuperclass();
-            } catch (Throwable ignored) {
-                return null;
-            }
+        if (event.getPacket() instanceof ServerboundMovePlayerPacket.PosRot posRot) {
+            event.setPacket(new ServerboundMovePlayerPacket.PosRot(
+                    posRot.getX(0.0), posRot.getY(0.0), posRot.getZ(0.0),
+                    rotations.x, rotations.y, posRot.isOnGround(), posRot.horizontalCollision()));
+        } else if (event.getPacket() instanceof ServerboundMovePlayerPacket.Rot rot) {
+            event.setPacket(new ServerboundMovePlayerPacket.Rot(
+                    rotations.x, rotations.y, rot.isOnGround(), rot.horizontalCollision()));
+        } else if (event.getPacket() instanceof ServerboundUseItemPacket useItem) {
+            event.setPacket(new ServerboundUseItemPacket(useItem.hand(), useItem.sequence(),
+                    rotations.x, rotations.y));
         }
-        return null;
     }
 }

@@ -1,32 +1,35 @@
 package wtf.carnation.module.impl.render;
 
-import net.minecraft.client.gui.GuiGraphicsExtractor;
+import net.minecraft.world.entity.Entity;
+import net.minecraft.world.entity.Mob;
+import net.minecraft.world.entity.animal.Animal;
+import net.minecraft.world.entity.item.ItemEntity;
 import net.minecraft.world.entity.player.Player;
-import wtf.carnation.event.EventTarget;
-import wtf.carnation.event.impl.render.Render2DEvent;
+import net.minecraft.world.entity.projectile.arrow.Arrow;
+import wtf.carnation.Client;
 import wtf.carnation.module.Category;
 import wtf.carnation.module.Module;
-import wtf.carnation.module.value.impl.NumberValue;
-import wtf.carnation.utils.EspRender;
+import wtf.carnation.module.value.impl.BoolValue;
 
-/** Outline glow: draws a wall-independent box around players. */
+/** Port of Naven's {@code Glow}; the glow gate is called from MixinMinecraft. */
 public class Glow extends Module {
-    private final NumberValue range = new NumberValue("Range", 48, 8, 128, 4);
+    private final BoolValue players = new BoolValue("Player", true);
+    private final BoolValue items = new BoolValue("Items", false);
+    private final BoolValue mobs = new BoolValue("Mobs", false);
+    private final BoolValue animals = new BoolValue("Animals", false);
+    private final BoolValue arrows = new BoolValue("Arrows", false);
 
     public Glow() {
-        super("Glow", Category.RENDER, "给玩家描边，穿墙可见");
+        super("Glow", Category.RENDER, "Glow effect for entities");
     }
 
-    @EventTarget
-    public void onRender2D(Render2DEvent event) {
-        if (mc.player == null || mc.level == null) return;
-        GuiGraphicsExtractor g = event.graphics();
-        EspRender.begin(g);
-        for (Player player : mc.level.getEntitiesOfClass(Player.class,
-                mc.player.getBoundingBox().inflate(range.get()))) {
-            if (player == mc.player) continue;
-            EspRender.box(g, player, 0xFF7C5CFF, false);
-        }
-        EspRender.end(g);
+    public static boolean shouldGlow(Entity entity) {
+        Glow module = Client.instance.getModuleManager().getModule(Glow.class);
+        if (module == null || !module.isEnabled()) return false;
+        if (entity instanceof Player && module.players.get()) return true;
+        if (entity instanceof ItemEntity && module.items.get()) return true;
+        if (entity instanceof Mob && module.mobs.get()) return true;
+        if (entity instanceof Animal && module.animals.get()) return true;
+        return entity instanceof Arrow && module.arrows.get();
     }
 }

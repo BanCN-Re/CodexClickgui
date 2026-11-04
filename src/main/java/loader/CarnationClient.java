@@ -8,6 +8,7 @@ public final class CarnationClient implements ClientModInitializer {
     @Override
     public void onInitializeClient() {
         new Client();
+        new LevelRenderBridge().onInitializeClient();
         ClientLifecycleEvents.CLIENT_STOPPING.register(minecraft -> {
             if (Client.instance != null) Client.instance.shutdown();
         });

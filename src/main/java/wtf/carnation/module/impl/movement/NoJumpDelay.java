@@ -6,14 +6,15 @@ import wtf.carnation.event.impl.movement.MotionEvent;
 import wtf.carnation.module.Category;
 import wtf.carnation.module.Module;
 
+/** Port of Naven's {@code tech.naven.modules.impl.move.NoJumpDelay}. */
 public class NoJumpDelay extends Module {
     public NoJumpDelay() {
-        super("NoJumpDelay", Category.MOVEMENT, "移除跳跃冷却，落地后可以立刻再跳");
+        super("NoJumpDelay", Category.MOVEMENT, "Removes the delay when jumping");
     }
 
     @EventTarget
-    public void onMotion(MotionEvent event) {
-        if (!event.isPre() || mc.player == null) return;
-        ((LivingEntityAccessor) (Object) mc.player).carnation$setNoJumpDelay(0);
+    public void onMotion(MotionEvent e) {
+        if (!e.isPre() || mc.player == null) return;
+        ((LivingEntityAccessor) mc.player).carnation$setNoJumpDelay(0);
     }
 }

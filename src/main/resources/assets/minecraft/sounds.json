@@ -1,0 +1,35 @@
+{
+  "music.menu": {
+    "replace": true,
+    "sounds": [
+      {
+        "name": "carnation:music/rhine_atmosphere",
+        "stream": true,
+        "volume": 0.55,
+        "weight": 1
+      }
+    ]
+  },
+  "music.game": {
+    "replace": true,
+    "sounds": [
+      {
+        "name": "carnation:music/rhine_motif",
+        "stream": true,
+        "volume": 0.34,
+        "weight": 1
+      }
+    ]
+  },
+  "music.creative": {
+    "replace": true,
+    "sounds": [
+      {
+        "name": "carnation:music/rhine_pulse",
+        "stream": true,
+        "volume": 0.34,
+        "weight": 1
+      }
+    ]
+  }
+}

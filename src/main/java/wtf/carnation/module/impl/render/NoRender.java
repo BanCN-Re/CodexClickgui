@@ -1,64 +1,22 @@
 package wtf.carnation.module.impl.render;
 
-import wtf.carnation.Client;
-import wtf.carnation.event.EventTarget;
-import wtf.carnation.event.impl.movement.RunTickEvent;
 import wtf.carnation.module.Category;
 import wtf.carnation.module.Module;
 import wtf.carnation.module.value.impl.BoolValue;
 
-/** Master switch that disables the common screen effects. */
+/**
+ * Port of Naven's {@code NoRender}.
+ *
+ * <p>The gate lives in {@code MixinHud}: {@code Hud.extractEffects} is cancelled while the module
+ * is on and {@code disableEffects} is set, which drops the status-effect icon column from the HUD.
+ * Naven declares no other behaviour for this module; the fire/hurt-camera/status-effect switches
+ * that used to live here belong to {@link LowFire}, {@link NoHurtCam}, {@link AntiBlindness} and
+ * {@link AntiNausea}, which each own their own hook.</p>
+ */
 public class NoRender extends Module {
-    private final BoolValue fire = new BoolValue("Fire", true);
-    private final BoolValue hurtCam = new BoolValue("HurtCam", true);
-    private final BoolValue blindness = new BoolValue("Blindness", true);
-    private final BoolValue nausea = new BoolValue("Nausea", true);
-
-    private Double previousTilt;
-    private Double previousScreen;
-    private boolean applied;
+    public final BoolValue disableEffects = new BoolValue("Disable Effects", true);
 
     public NoRender() {
-        super("NoRender", Category.RENDER, "一键关闭火焰、受伤抖动、失明与反胃");
-    }
-
-    @Override
-    protected void onEnable() {
-        apply();
-    }
-
-    @Override
-    protected void onDisable() {
-        if (mc.options != null && applied) {
-            if (previousTilt != null) mc.options.damageTiltStrength().set(previousTilt);
-            if (previousScreen != null) mc.options.screenEffectScale().set(previousScreen);
-        }
-        applied = false;
-        set("AntiBlindness", false);
-        set("AntiNausea", false);
-    }
-
-    @EventTarget
-    public void onRunTick(RunTickEvent event) {
-        if (event.isPre()) apply();
-    }
-
-    private void apply() {
-        if (mc.options == null) return;
-        if (!applied) {
-            previousTilt = mc.options.damageTiltStrength().get();
-            previousScreen = mc.options.screenEffectScale().get();
-            applied = true;
-        }
-        if (hurtCam.get()) mc.options.damageTiltStrength().set(0.0);
-        if (fire.get()) mc.options.screenEffectScale().set(0.0);
-        set("AntiBlindness", blindness.get());
-        set("AntiNausea", nausea.get());
-    }
-
-    private static void set(String name, boolean enabled) {
-        if (Client.instance == null) return;
-        Module module = Client.instance.getModuleManager().getModuleByName(name);
-        if (module != null && module.isEnabled() != enabled) module.setState(enabled);
+        super("NoRender", Category.RENDER, "Disables rendering");
     }
 }

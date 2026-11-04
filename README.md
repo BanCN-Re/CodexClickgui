@@ -25,7 +25,6 @@ QQ 搜索 **737086340** 即可加入。
 - **三套界面**：Codex / ZCode / Naven，由 `ClickGui` 的 `Style` 选项切换
 - **Lua 模块**与 Java 模块完全同权：出现在分类里、有设置面板、能绑键、配置自动保存
 - **封包层**开放到 Lua：收发 26.3 协议包，可读字段、可取消、可重建
-- **客户端游戏测试**：`runClientGameTest` 真实启动客户端、跑断言、截图
 
 | 项 | 值 |
 |---|---|
@@ -33,7 +32,7 @@ QQ 搜索 **737086340** 即可加入。
 | Fabric Loader | `0.19.5` |
 | Fabric API | `0.165.0+26.3` |
 | Java | `25` |
-| 图形后端 | Vulkan（游戏测试走 OpenGL） |
+| 图形后端 | Vulkan（`--graphicsBackend vulkan`） |
 | 模组版本 | `0.1.0` |
 
 ---
@@ -466,7 +465,49 @@ local pos = BlockPos:containing(api:player():getX(), api:player():getY(), api:pl
 
 ---
 
-## 构建与测试
+## 启动动画
+
+客户端第一次启动时的原版 Mojang 加载界面被整体替换为莱茵生命风格的终端开场，共 9 幕：安全壳自检（POST）→ 权限申请（操作员 / 权限等级 / 请求编号）→ 标志绘制 → 身份确认 → 档案挂载（结构制图 + 资产清单 + 遥测日志）→ 结构分析（档案盒剖面 + 三处引线标注）→ 权限扫描（握手 / 签名 / 通行）→ 权限印章（CLEARANCE 04 / ACCESS GRANTED）→ 内部数据库欢迎页，最后白闪进入标题界面。
+
+- 实现：`mixin/MixinLoadingOverlay` 在 `LoadingOverlay.extractRenderState` 的 `HEAD` 取消原版渲染，画面交给 `wtf/carnation/boot`。
+- 进度是真实的：百分比、底部刻度条与资产清单都跟随 `ReloadInstance`；整段约 26.6 秒，**任意按键可直接跳到白闪收尾**。
+- 字体：加载界面渲染时 Minecraft 的字体尚未加载，开场使用自带字形图集（`assets/carnation/boot/`）。改文案或换字体后重新生成：
+
+  ```bash
+  python tools/build_boot_font.py
+  ```
+
+- 只在进程第一次启动时接管；游戏内 `F3 + T` 重载资源仍显示原版加载界面。
+- 想完整再看一遍：`.boot`（别名 `.bootanim`）。
+
+---
+
+## 标题界面
+
+标题界面同样改成莱茵终端：左侧是 `01–05` 主菜单（单人游戏 / 多人游戏 / Minecraft Realms / 选项 / 退出游戏），右侧是 ∞ 标志与内部数据库铭牌，右上角是本地时间、语言与无障碍入口，底部是版本与贡献者信息。
+
+- 实现：`mixin/MixinTitleScreen` **不替换**原版 `TitleScreen`，而是把它自带的控件移动到菜单网格上，再由 `wtf/carnation/ui/rhine/RhineTitle` 绘制；控件的点击、键盘焦点与旁白全部沿用原版。
+- 原版全景、Minecraft Logo、黄色 splash 与左下角版本号在标题界面被隐藏（`MixinScreen` / `MixinLogoRenderer` / `MixinSplashRenderer` / `MixinTitleScreen` 里的重定向）。
+- 原版控件不可见但仍是点击目标（`MixinAbstractWidget` 只取消绘制）；多人游戏不可用时该行显示 `UNAVAILABLE`。
+- 视频壁纸不再绘制在标题界面；`VideoWallpaper` 仍保留在工程里，需要时可重新接回 `extractBackground`。
+
+---
+
+## 子界面与音乐
+
+从标题进入的界面统一为暗色终端：世界列表、创建世界、多人游戏、选项及其子页、暂停、断开连接都使用暖黑底、细线按钮和巨大的 ∞ 水印；世界加载界面单独沿用开场的纸张风格。
+
+- `wtf/carnation/ui/rhine/RhineScreens`：背景、按钮悬停（描边反白 + 底部橙线）、搜索框细线样式与淡入；原版控件仍然负责点击与键盘焦点。
+- `mixin/MixinLevelLoadingScreen` + `RhineLoading`：替换原版“加载地形中”区块图，显示世界名、旋转环与分段进度。
+- `mixin/MixinScreen`、`MixinEditBox`、`MixinAbstractWidget`、`MixinSliderButton`、`MixinCheckbox`：背景与控件皮肤（按钮、滑条、勾选框、搜索框）。
+- 音乐：`assets/minecraft/sounds.json` 用 `replace` 覆盖 `music.menu` / `music.game` / `music.creative`，分别指向 `carnation:music/rhine_atmosphere` / `rhine_motif` / `rhine_pulse`；`RhineMusic` 跳过原版 `MusicManager`，用循环 `SoundInstance` 持续播放（菜单 / 生存 / 创造各一轨）。
+- 配乐来自 [LBEILC/RhineLabUI](https://github.com/LBEILC/RhineLabUI) 的原创三轨 OST《Observatory / 观测室》（MIT，版权归 LBEILC），文件在 `assets/carnation/sounds/music/`；替换其中的 OGG 即可换曲。
+- 音效：开场打字声取自 RhineLabUI 的 `typing-preview.wav`，欢迎页另有一声合成确认音；事件在 `assets/carnation/sounds.json`，文件在 `assets/carnation/sounds/ui/`。
+- 标志：`RhineMarkTexture` 读取 `tools/MarkRender.java` 从 RhineLabUI `src/brand.ts` 精确栅格化的 `rhine_mark.png`，两个环、交叉折角与正负号完全按源 SVG 描边生成。
+
+---
+
+## 构建
 
 ```bash
 # 编译并打包
@@ -474,24 +515,15 @@ local pos = BlockPos:containing(api:player():getX(), api:player():getY(), api:pl
 
 # 启动客户端（Vulkan）
 ./gradlew runClient
-
-# 客户端游戏测试：真实启动客户端、跑断言、截图
-./gradlew runClientGameTest
 ```
 
-游戏测试产出的截图在 `build/run/clientGameTest/screenshots/`，日志在 `run/logs/latest.log`。
-
-几点约定：
-
-- `runClient` 固定 `--graphicsBackend vulkan`，壁纸走 Vulkan 渲染路径。
-- `runClientGameTest` 固定 `--graphicsBackend opengl`：测试会反复改窗口尺寸、快速换帧，Vulkan 在驱动叠加层上容易触发 `VK_ERROR_DEVICE_LOST`。
-- 游戏测试的断言必须通过 `context.computeOnClient(...)` / `runOnClient(...)` 执行，测试线程直接调 `Minecraft.getInstance()` 会抛异常。
+`runClient` 固定 `--graphicsBackend vulkan`；启动动画与标题界面用 GUI 三角形和自带字形图集绘制。截图默认存到 `run/screenshots/`。
 
 ---
 
 ## 仓库内容
 
-**包含**：`src/`（主源码 + 游戏测试）、Gradle 包装器与构建脚本、`MIGRATION-STATUS.md`（模块迁移记录）。
+**包含**：`src/main`（主源码）、Gradle 包装器与构建脚本、`tools/`（开场字形图集、标志栅格化、界面音效与语音生成）、`MIGRATION-STATUS.md`（模块迁移记录）。
 
 **不包含**（已用 `.gitignore` 挡掉）：
 

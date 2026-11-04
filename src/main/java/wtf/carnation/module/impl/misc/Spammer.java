@@ -4,29 +4,42 @@ import wtf.carnation.event.EventTarget;
 import wtf.carnation.event.impl.movement.RunTickEvent;
 import wtf.carnation.module.Category;
 import wtf.carnation.module.Module;
+import wtf.carnation.module.value.Value;
+import wtf.carnation.module.value.impl.BoolValue;
 import wtf.carnation.module.value.impl.ModeValue;
 import wtf.carnation.module.value.impl.NumberValue;
+import wtf.carnation.utils.TimeHelper;
 
-/** Spams chat with a configurable message. */
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Random;
+
+/** Port of Naven's {@code Spammer}. */
 public class Spammer extends Module {
-    private final NumberValue delay = new NumberValue("Delay", 6000, 0, 15000, 100);
+    private final Random random = new Random();
+    private final NumberValue delay = new NumberValue("Delay", 6000.0, 0.0, 15000.0, 100.0);
     private final ModeValue prefix = new ModeValue("Prefix", new String[]{"None", "@", "/shout "}, "None");
-    private final ModeValue message = new ModeValue("Message",
-            new String[]{"hello", "gg", "nice"}, "hello");
-
-    private long lastSend;
+    private final List<BoolValue> values = new ArrayList<>();
+    private final TimeHelper timer = new TimeHelper();
 
     public Spammer() {
-        super("Spammer", Category.MISC, "定时刷屏聊天");
+        super("Spammer", Category.MISC, "Spam chat!");
     }
 
     @EventTarget
-    public void onRunTick(RunTickEvent event) {
-        if (!event.isPre() || mc.player == null || mc.player.connection == null) return;
-        long now = System.currentTimeMillis();
-        if (now - this.lastSend < this.delay.get()) return;
-        String prefixText = this.prefix.is("None") ? "" : this.prefix.get();
-        mc.player.connection.sendChat(prefixText + this.message.get());
-        this.lastSend = now;
+    public void onMotion(RunTickEvent e) {
+        if (e.isPre() || mc.player == null || !this.timer.delay(this.delay.get())) return;
+
+        String messagePrefix = this.prefix.is("None") ? "" : this.prefix.get();
+        List<String> styles = this.values.stream().filter(BoolValue::get).map(Value::getName).toList();
+        if (styles.isEmpty()) return;
+
+        String style = styles.get(this.random.nextInt(styles.size()));
+        if (mc.player.connection != null) mc.player.connection.sendChat(messagePrefix + style);
+        this.timer.reset();
+    }
+
+    public List<BoolValue> getSpamValues() {
+        return this.values;
     }
 }

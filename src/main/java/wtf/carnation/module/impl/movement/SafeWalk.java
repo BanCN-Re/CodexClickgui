@@ -1,34 +1,34 @@
 package wtf.carnation.module.impl.movement;
 
-import net.minecraft.world.phys.AABB;
+import com.mojang.blaze3d.platform.InputConstants;
+import mixin.KeyMappingAccessor;
 import wtf.carnation.event.EventTarget;
 import wtf.carnation.event.impl.movement.MotionEvent;
 import wtf.carnation.module.Category;
 import wtf.carnation.module.Module;
-import wtf.carnation.module.value.impl.NumberValue;
 
+/** Port of Naven's {@code tech.naven.modules.impl.move.SafeWalk}. */
 public class SafeWalk extends Module {
-    private final NumberValue sensitivity = new NumberValue("Sensitivity", 0.3, 0.05, 0.9, 0.05);
-
     public SafeWalk() {
-        super("SafeWalk", Category.MOVEMENT, "走到方块边缘时自动潜行，防止掉落");
+        super("SafeWalk", Category.MOVEMENT, "Prevents you from falling off blocks");
     }
 
     public static boolean isOnBlockEdge(float sensitivity) {
-        if (mc.player == null || mc.level == null) return false;
-        AABB box = mc.player.getBoundingBox().move(0.0, -0.5, 0.0)
-                .inflate(-sensitivity, 0.0, -sensitivity);
-        return !mc.level.getBlockCollisions(mc.player, box).iterator().hasNext();
+        return !mc.level.getCollisions(mc.player, mc.player.getBoundingBox()
+                        .move(0.0, -0.5, 0.0)
+                        .inflate(-sensitivity, 0.0, -sensitivity))
+                .iterator().hasNext();
     }
 
     @EventTarget
-    public void onMotion(MotionEvent event) {
-        if (!event.isPre() || mc.player == null) return;
-        mc.options.keyShift.setDown(mc.player.onGround() && isOnBlockEdge(sensitivity.getFloat()));
+    public void onMotion(MotionEvent e) {
+        if (!e.isPre() || mc.player == null) return;
+        mc.options.keyShift.setDown(mc.player.onGround() && isOnBlockEdge(0.3F));
     }
 
     @Override
     protected void onDisable() {
-        mc.options.keyShift.setDown(false);
+        int key = ((KeyMappingAccessor) mc.options.keyShift).carnation$getKey().getValue();
+        mc.options.keyShift.setDown(InputConstants.isKeyDown(key));
     }
 }

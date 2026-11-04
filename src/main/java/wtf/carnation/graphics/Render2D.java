@@ -217,6 +217,35 @@ public final class Render2D {
         g.pose().popMatrix();
     }
 
+    /**
+     * A polyline of {@code thickness}, revealed from 0 to {@code progress} along its length.
+     * Points are x/y pairs; used by the boot mark contour.
+     */
+    public static void ribbon(GuiGraphicsExtractor g, float[] points, float thickness, int color, float progress) {
+        if (points == null || points.length < 4 || progress <= 0 || alpha(color) == 0) return;
+        float total = 0.0F;
+        for (int i = 0; i + 3 < points.length; i += 2) {
+            float dx = points[i + 2] - points[i], dy = points[i + 3] - points[i + 1];
+            total += (float) Math.sqrt(dx * dx + dy * dy);
+        }
+        if (total <= 1.0e-4F) return;
+        float budget = total * Math.max(0.0F, Math.min(1.0F, progress));
+        float travelled = 0.0F;
+        for (int i = 0; i + 3 < points.length && budget > 0; i += 2) {
+            float x1 = points[i], y1 = points[i + 1], x2 = points[i + 2], y2 = points[i + 3];
+            float dx = x2 - x1, dy = y2 - y1;
+            float length = (float) Math.sqrt(dx * dx + dy * dy);
+            if (length <= 1.0e-4F) continue;
+            float draw = Math.min(length, budget);
+            float endX = x1 + dx / length * draw;
+            float endY = y1 + dy / length * draw;
+            line(g, x1, y1, endX, endY, thickness, color);
+            travelled += draw;
+            budget -= draw;
+            if (budget <= 0) break;
+        }
+    }
+
     // ---- text ---------------------------------------------------------------------------------
 
     public static Font font() {

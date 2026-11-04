@@ -1,35 +1,45 @@
 package wtf.carnation.utils;
 
-import net.minecraft.client.Camera;
+import net.minecraft.client.Minecraft;
 import net.minecraft.world.phys.Vec3;
 
-/** Minimal world-to-screen projection for the HUD/ESP modules. */
+/**
+ * World-to-screen projection for the 2D ESP overlays.
+ *
+ * <p>Derived from the player's eye position and applied view rotation rather than
+ * {@code GameRenderer.mainCamera()}: the HUD extraction pass runs before the frame's camera is
+ * set up, so a camera-based projection returns stale angles and entities in plain sight end up
+ * "behind" it. The player state is already final by the time the HUD is drawn.</p>
+ */
 public final class Projection {
 
     private Projection() {
     }
 
-    /** Returns GUI-scaled pixel coordinates, or null when the point is behind the camera. */
+    /**
+     * Returns GUI-scaled pixel coordinates (the space every HUD module draws in), or null when the
+     * point is behind the viewer.
+     */
     public static Vec3 project(Vec3 world) {
-        var mc = net.minecraft.client.Minecraft.getInstance();
-        if (mc.player == null || mc.gameRenderer == null) return null;
-        Camera camera = mc.gameRenderer.mainCamera();
-        Vec3 camPos = camera.position();
-        double dx = world.x - camPos.x;
-        double dy = world.y - camPos.y;
-        double dz = world.z - camPos.z;
+        var mc = Minecraft.getInstance();
+        if (mc.player == null) return null;
 
-        double yaw = Math.toRadians(camera.yRot());
-        double pitch = Math.toRadians(camera.xRot());
+        Vec3 eye = mc.player.getEyePosition();
+        double dx = world.x - eye.x;
+        double dy = world.y - eye.y;
+        double dz = world.z - eye.z;
+
+        double yaw = Math.toRadians(mc.player.getYRot());
+        double pitch = Math.toRadians(mc.player.getXRot());
         double sinY = Math.sin(yaw), cosY = Math.cos(yaw);
         double sinP = Math.sin(pitch), cosP = Math.cos(pitch);
 
         // Camera basis: right, up, forward (MC: yaw 0 faces +Z, positive pitch looks down).
-        double rightX = -cosY, rightY = 0, rightZ = -sinY;
+        double rightX = -cosY, rightZ = -sinY;
         double fwdX = -sinY * cosP, fwdY = -sinP, fwdZ = cosY * cosP;
         double upX = -sinY * sinP, upY = cosP, upZ = cosY * sinP;
 
-        double x = dx * rightX + dy * rightY + dz * rightZ;
+        double x = dx * rightX + dz * rightZ;
         double y = dx * upX + dy * upY + dz * upZ;
         double z = dx * fwdX + dy * fwdY + dz * fwdZ;
         if (z <= 0.05) return null;
@@ -41,8 +51,11 @@ public final class Projection {
         double aspect = screenW / screenH;
         double ndcX = (x / z) * f / aspect;
         double ndcY = (y / z) * f;
-        double sx = (ndcX * 0.5 + 0.5) * screenW;
-        double sy = (1.0 - (ndcY * 0.5 + 0.5)) * screenH;
+        // The framebuffer is guiScale times larger than the GUI space HUD drawing lives in, so the
+        // projection has to be divided back down or every ESP box lands off-screen by that factor.
+        double guiScale = Math.max(1.0, mc.getWindow().getGuiScale());
+        double sx = (ndcX * 0.5 + 0.5) * screenW / guiScale;
+        double sy = (1.0 - (ndcY * 0.5 + 0.5)) * screenH / guiScale;
         return new Vec3(sx, sy, z);
     }
 }

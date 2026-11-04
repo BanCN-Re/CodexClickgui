@@ -8,6 +8,7 @@ import wtf.carnation.event.EventManager;
 import wtf.carnation.manager.command.CommandManager;
 import wtf.carnation.manager.config.ConfigManager;
 import wtf.carnation.module.ModuleManager;
+import wtf.carnation.notification.NotificationManager;
 import wtf.carnation.script.LuaScriptManager;
 
 import java.io.File;
@@ -27,11 +28,13 @@ public class Client implements InstanceAccess {
     private final LuaScriptManager luaScriptManager;
     private final CommandManager commandManager;
     private final ConfigManager configManager;
+    private final NotificationManager notificationManager;
     private volatile boolean shuttingDown;
 
     public Client() {
         instance = this;
         eventManager = new EventManager();
+        notificationManager = new NotificationManager();
 
         moduleManager = new ModuleManager();
         luaScriptManager = new LuaScriptManager();
@@ -43,6 +46,8 @@ public class Client implements InstanceAccess {
         eventManager.register(luaScriptManager);
         eventManager.register(commandManager);
         eventManager.register(wtf.carnation.utils.RotationManager.INSTANCE);
+        eventManager.register(wtf.carnation.utils.EntityWatcher.INSTANCE);
+        eventManager.register(wtf.carnation.utils.NetworkUtils.INSTANCE);
 
         configManager.loadAllConfig();
         logger.info("{} {} loaded with {} modules", name, ver, moduleManager.getModules().size());

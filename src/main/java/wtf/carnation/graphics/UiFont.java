@@ -80,6 +80,27 @@ public enum UiFont {
         return size;
     }
 
+    /**
+     * The line box height of this face. The TTF provider's line box is taller than the requested
+     * em size (ascent + descent + leading), so laying rows out with {@link #size()} makes them
+     * overlap and leaves glyphs hanging out of their plates.
+     */
+    public float lineHeight() {
+        return size * 1.2F;
+    }
+
+    /** Cap height ratio of the bundled faces; used to centre a line inside a plate. */
+    private static final float CAP_RATIO = 0.73F;
+    /** Distance from the line box top down to the cap top. */
+    private static final float TOP_PAD_RATIO = 0.20F;
+
+    /** Draws with the glyph's cap box vertically centred inside {@code [top, top + height)}. */
+    public void drawInBox(GuiGraphicsExtractor g, String text, float x, float top, float height,
+                          int color) {
+        float cap = size * CAP_RATIO;
+        draw(g, text, x, top + (height - cap) * 0.5F - size * TOP_PAD_RATIO, color);
+    }
+
     public Component text(String text) {
         FontDescription font = fonts[scaleIndex];
         return Component.literal(text).withStyle(style -> style.withFont(font));

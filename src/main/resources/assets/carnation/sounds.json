@@ -1,0 +1,146 @@
+{
+  "ui_tick": {
+    "sounds": [
+      {
+        "name": "carnation:ui/tick",
+        "volume": 0.85,
+        "weight": 1
+      }
+    ]
+  },
+  "ui_ticks": {
+    "sounds": [
+      {
+        "name": "carnation:ui/ticks_run",
+        "volume": 0.7,
+        "weight": 1
+      }
+    ]
+  },
+  "ui_glass": {
+    "sounds": [
+      {
+        "name": "carnation:ui/glass_tick",
+        "volume": 1.0,
+        "weight": 1
+      }
+    ]
+  },
+  "brand": {
+    "sounds": [
+      {
+        "name": "carnation:ui/brand",
+        "volume": 0.9,
+        "weight": 1
+      }
+    ]
+  },
+  "confirm": {
+    "sounds": [
+      {
+        "name": "carnation:ui/confirm",
+        "volume": 0.9,
+        "weight": 1
+      }
+    ]
+  },
+  "scan": {
+    "sounds": [
+      {
+        "name": "carnation:ui/scan",
+        "volume": 0.9,
+        "weight": 1
+      }
+    ]
+  },
+  "welcome": {
+    "sounds": [
+      {
+        "name": "carnation:ui/welcome",
+        "volume": 0.9,
+        "weight": 1
+      }
+    ]
+  },
+  "text": {
+    "sounds": [
+      {
+        "name": "carnation:ui/text",
+        "volume": 0.9,
+        "weight": 1
+      }
+    ]
+  },
+  "array": {
+    "sounds": [
+      {
+        "name": "carnation:ui/array",
+        "volume": 0.9,
+        "weight": 1
+      }
+    ]
+  },
+  "open": {
+    "sounds": [
+      {
+        "name": "carnation:ui/open",
+        "volume": 0.9,
+        "weight": 1
+      }
+    ]
+  },
+  "voice_1": {
+    "sounds": [
+      {
+        "name": "carnation:voice/line1",
+        "volume": 1.0,
+        "weight": 1
+      }
+    ]
+  },
+  "voice_2": {
+    "sounds": [
+      {
+        "name": "carnation:voice/line2",
+        "volume": 1.0,
+        "weight": 1
+      }
+    ]
+  },
+  "voice_3": {
+    "sounds": [
+      {
+        "name": "carnation:voice/line3",
+        "volume": 1.0,
+        "weight": 1
+      }
+    ]
+  },
+  "voice_4": {
+    "sounds": [
+      {
+        "name": "carnation:voice/line4",
+        "volume": 1.0,
+        "weight": 1
+      }
+    ]
+  },
+  "voice_5": {
+    "sounds": [
+      {
+        "name": "carnation:voice/line5",
+        "volume": 1.0,
+        "weight": 1
+      }
+    ]
+  },
+  "voice_6": {
+    "sounds": [
+      {
+        "name": "carnation:voice/line6",
+        "volume": 1.0,
+        "weight": 1
+      }
+    ]
+  }
+}

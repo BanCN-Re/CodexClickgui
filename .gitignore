@@ -26,3 +26,6 @@ LookFor/
 build_log.txt
 extract_pkg.py
 
+
+# 本地迁移参考（NeoNaven / moon-rebase 源码解包，仅供比对）
+.commandcode/

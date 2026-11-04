@@ -8,14 +8,19 @@ import wtf.carnation.event.impl.movement.RunTickEvent;
 import wtf.carnation.module.Category;
 import wtf.carnation.module.Module;
 
-/** Throws an ender pearl when the pick-item key is pressed. */
+/**
+ * Port of Naven's {@code MidPearl}.
+ *
+ * <p>Naven forced the carried-item packet through MultiPlayerGameModeAccessor;
+ * 26.3 sends it from the inventory tick, so the swap is enough here.</p>
+ */
 public class MidPearl extends Module {
     private boolean doWork;
     private boolean switchBack;
     private int lastSlot = -1;
 
     public MidPearl() {
-        super("MidPearl", Category.MISC, "按取物键丢末影珍珠");
+        super("MidPearl", Category.MISC, "Middle-click to throw an ender pearl");
     }
 
     @Override
@@ -36,9 +41,11 @@ public class MidPearl extends Module {
     }
 
     @EventTarget
-    public void onRunTick(RunTickEvent event) {
-        if (!event.isPre()) return;
-        if (mc.player == null || mc.level == null || mc.gameMode == null) return;
+    public void onTick(RunTickEvent event) {
+        if (!event.isPre() || mc.player == null || mc.level == null || mc.gameMode == null
+                || !mc.player.isAlive()) {
+            return;
+        }
 
         if (mc.options.keyPickItem.isDown()) {
             this.doWork = true;
@@ -46,13 +53,11 @@ public class MidPearl extends Module {
         }
 
         if (this.doWork) {
-            int pearlSlot = findPearlSlot();
+            int pearlSlot = this.findPearlSlot();
             if (pearlSlot != -1) {
                 this.lastSlot = mc.player.getInventory().getSelectedSlot();
                 mc.player.getInventory().setSelectedSlot(pearlSlot);
                 mc.gameMode.useItem(mc.player, InteractionHand.MAIN_HAND);
-                mc.player.swing(InteractionHand.MAIN_HAND,
-                        net.minecraft.world.item.component.SwingAnimation.DEFAULT, true);
                 this.doWork = false;
                 this.switchBack = true;
             }
@@ -66,9 +71,9 @@ public class MidPearl extends Module {
 
     private int findPearlSlot() {
         if (mc.player == null) return -1;
-        for (int slot = 0; slot <= 8; slot++) {
-            ItemStack stack = mc.player.getInventory().getItem(slot);
-            if (!stack.isEmpty() && stack.is(Items.ENDER_PEARL)) return slot;
+        for (int i = 0; i <= 8; i++) {
+            ItemStack stack = mc.player.getInventory().getItem(i);
+            if (!stack.isEmpty() && stack.getItem() == Items.ENDER_PEARL) return i;
         }
         return -1;
     }

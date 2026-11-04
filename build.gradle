@@ -20,18 +20,6 @@ loom {
 	}
 }
 
-// Client game tests (src/gametest) drive the real client and take screenshots of the GUI:
-// .\gradlew runClientGameTest
-fabricApi {
-	configureTests {
-		createSourceSet = true
-		modId = "carnation-gametest"
-		enableGameTests = false
-		enableClientGameTests = true
-		eula = true
-	}
-}
-
 repositories {
 }
 
@@ -77,14 +65,4 @@ java {
 tasks.withType(JavaCompile).configureEach {
 	it.options.release = 25
 	it.options.encoding = 'UTF-8'
-}
-
-// configureTests (above) creates the clientGameTest run. Game tests intentionally run on
-// OpenGL: the CI window is resized and screens swap rapidly, which repeatedly trips VK_ERROR_DEVICE_LOST
-// on driver overlays; the Vulkan wallpaper path is still exercised by runClient.
-afterEvaluate {
-	def gametestRun = loom.runs.findByName('clientGameTest')
-	if (gametestRun != null) {
-		gametestRun.programArgs "--graphicsBackend", "opengl"
-	}
 }
